@@ -71,4 +71,13 @@ async def root():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    from src.config import get_server_config
+
+    cfg = get_server_config()
+    uvicorn.run(
+        "src.main:app",
+        host=cfg.host,
+        port=cfg.port,
+        reload=cfg.reload,
+        workers=cfg.workers,
+    )

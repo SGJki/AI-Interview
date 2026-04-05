@@ -20,17 +20,15 @@ def get_embeddings():
     """
     获取 embedding 模型
 
-    TODO: 使用智谱 GLM 的 embedding 接口
-    目前使用 OpenAI 兼容接口
+    配置来自 pyproject.toml [tool.ai-interview.llm]
     """
-    # TODO: 替换为智谱 GLM embedding
-    api_key = os.environ.get("OPENAI_API_KEY", "")
-    base_url = os.environ.get("OPENAI_BASE_URL", "https://api.zhipuai.cn/v1")
+    from src.config import get_llm_config
 
+    cfg = get_llm_config()
     return OpenAIEmbeddings(
-        api_key=api_key,
-        base_url=base_url,
-        model="embedding-2"
+        api_key=cfg.api_key,
+        base_url=cfg.base_url,
+        model=cfg.embedding_model,
     )
 
 

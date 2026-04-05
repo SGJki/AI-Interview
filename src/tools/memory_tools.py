@@ -26,20 +26,13 @@ def get_redis_client() -> redis.Redis:
     """
     获取 Redis 客户端
 
-    TODO: 从配置读取 Redis 连接信息
+    配置来自 pyproject.toml [tool.ai-interview.redis]
     """
-    host = "localhost"
-    port = 6379
-    db = 0
-    password = None
+    from src.config import get_redis_config
 
-    return redis.Redis(
-        host=host,
-        port=port,
-        db=db,
-        password=password,
-        decode_responses=True,
-    )
+    cfg = get_redis_config()
+    kwargs = cfg.to_redis_kwargs()
+    return redis.Redis(**kwargs)
 
 
 # =============================================================================

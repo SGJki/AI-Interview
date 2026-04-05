@@ -476,15 +476,44 @@ Returns service health status.
 
 ## Configuration
 
-### Environment Variables (TODO)
+All configuration is managed in `pyproject.toml` under `[tool.ai-interview]`.
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `REDIS_HOST` | localhost | Redis host |
-| `REDIS_PORT` | 6379 | Redis port |
-| `DATABASE_URL` | postgresql://... | PostgreSQL connection string |
-| `LLM_API_KEY` | - | LLM API key |
-| `LLM_BASE_URL` | - | LLM base URL |
+### Configuration Sections
+
+| Section | Description |
+|---------|-------------|
+| `[tool.ai-interview.redis]` | Redis connection settings |
+| `[tool.ai-interview.database]` | PostgreSQL connection settings |
+| `[tool.ai-interview.llm]` | LLM API settings (OpenAI-compatible) |
+| `[tool.ai-interview.vector]` | Vector store settings |
+| `[tool.ai-interview.server]` | FastAPI server settings |
+| `[tool.ai-interview.interview]` | Interview behavior settings |
+| `[tool.ai-interview.rag]` | RAG retrieval settings |
+
+### Example Configuration
+
+```toml
+[tool.ai-interview.redis]
+host = "localhost"
+port = 6379
+db = 0
+password = ""
+
+[tool.ai-interview.database]
+url = "postgresql+asyncpg://postgres:postgres@localhost:5432/ai_interview"
+pool_size = 10
+
+[tool.ai-interview.llm]
+api_key = "your_api_key"
+base_url = "https://open.bigmodel.cn/api/paas/v4"
+model = "glm-4"
+embedding_model = "embedding-2"
+
+[tool.ai-interview.server]
+host = "0.0.0.0"
+port = 8000
+reload = true
+```
 
 ---
 

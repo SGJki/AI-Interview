@@ -122,13 +122,10 @@ def get_database_manager() -> DatabaseManager:
     global _default_db
 
     if _default_db is None:
-        import os
+        from src.config import get_database_config
 
-        database_url = os.environ.get(
-            "DATABASE_URL",
-            "postgresql+asyncpg://postgres:postgres@localhost:5432/ai_interview",
-        )
-        _default_db = DatabaseManager(database_url)
+        cfg = get_database_config()
+        _default_db = DatabaseManager(cfg.url)
 
     return _default_db
 

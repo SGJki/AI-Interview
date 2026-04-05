@@ -258,15 +258,32 @@ InterviewState:
 
 ## 配置
 
-### Redis (默认)
+所有配置统一管理在 `pyproject.toml` 的 `[tool.ai-interview]` 下：
 
-```python
+```toml
+[tool.ai-interview.redis]
 host = "localhost"
 port = 6379
 db = 0
+password = ""
+
+[tool.ai-interview.database]
+url = "postgresql+asyncpg://postgres:postgres@localhost:5432/ai_interview"
+pool_size = 10
+
+[tool.ai-interview.llm]
+api_key = "your_api_key"
+base_url = "https://open.bigmodel.cn/api/paas/v4"
+model = "glm-4"
+embedding_model = "embedding-2"
+
+[tool.ai-interview.server]
+host = "0.0.0.0"
+port = 8000
+reload = true
 ```
 
-### PostgreSQL
+### PostgreSQL 初始化
 
 ```bash
 # 创建数据库
@@ -274,16 +291,6 @@ CREATE DATABASE ai_interview;
 
 # 启用 pgvector
 CREATE EXTENSION IF NOT EXISTS vector;
-```
-
-### 环境变量 (TODO)
-
-```bash
-REDIS_HOST=localhost
-REDIS_PORT=6379
-DATABASE_URL=postgresql://user:pass@localhost:5432/ai_interview
-LLM_API_KEY=your_api_key
-LLM_BASE_URL=https://open.bigmodel.cn/api/paas/v4
 ```
 
 ## 测试
