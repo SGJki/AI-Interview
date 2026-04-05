@@ -25,7 +25,10 @@
       "Bash(findstr \"29596\")",
       "Bash(curl:*)",
       "Bash(dir \"C:\\\\Users\\\\13253\\\\dataDisk\\\\Agent_AI\\\\AI-Interview\\\\data\\\\vectorstore\")",
-      "Bash(ls -la \"C:\\\\Users\\\\13253\\\\dataDisk\\\\Agent_AI\\\\AI-Interview\"/*.py \"C:\\\\Users\\\\13253\\\\dataDisk\\\\Agent_AI\\\\AI-Interview\"/*.sh \"C:\\\\Users\\\\13253\\\\dataDisk\\\\Agent_AI\\\\AI-Interview\"/*.bat)"
+      "Bash(ls -la \"C:\\\\Users\\\\13253\\\\dataDisk\\\\Agent_AI\\\\AI-Interview\"/*.py \"C:\\\\Users\\\\13253\\\\dataDisk\\\\Agent_AI\\\\AI-Interview\"/*.sh \"C:\\\\Users\\\\13253\\\\dataDisk\\\\Agent_AI\\\\AI-Interview\"/*.bat)",
+      "Bash(ruff check:*)",
+      "Bash(mypy src/)",
+      "Bash(bandit -r src/)"
     ]
   }
 }

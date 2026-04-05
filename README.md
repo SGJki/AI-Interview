@@ -1,3 +1,7 @@
+#Current Bug
+
+目前问题输出会重复
+
 # AI Interview Agent
 
 基于 LangGraph + LangChain 的智能 AI 模拟面试官 Agent，支持多系列面试、实时点评、流式输出和专项训练功能。
