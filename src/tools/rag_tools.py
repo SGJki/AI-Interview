@@ -8,7 +8,7 @@ from typing import Optional
 from langchain_core.retrievers import BaseRetriever
 from langchain_core.documents import Document
 from langchain_chroma import Chroma
-from langchain_openai import OpenAIEmbeddings
+from langchain_community.embeddings import DashScopeEmbeddings
 import os
 
 
@@ -20,15 +20,15 @@ def get_embeddings():
     """
     获取 embedding 模型
 
-    配置来自 pyproject.toml [tool.ai-interview.llm]
+    配置来自 pyproject.toml [tool.ai-interview.embedding]
+    使用阿里云 DashScope text-embedding-v3
     """
-    from src.config import get_llm_config
+    from src.config import get_embedding_config
 
-    cfg = get_llm_config()
-    return OpenAIEmbeddings(
-        api_key=cfg.api_key,
-        base_url=cfg.base_url,
-        model=cfg.embedding_model,
+    cfg = get_embedding_config()
+    return DashScopeEmbeddings(
+        model=cfg.model,
+        dashscope_api_key=cfg.api_key,
     )
 
 
@@ -192,6 +192,7 @@ async def retrieve_by_skill_point(
 async def add_to_knowledge_base(
     content: str,
     metadata: dict,
+    embeddings=None,
     persist_directory: str = "./data/vectorstore"
 ) -> None:
     """
@@ -200,9 +201,11 @@ async def add_to_knowledge_base(
     Args:
         content: 文档内容
         metadata: 元数据（包含 type, skill_point 等）
+        embeddings: 嵌入函数，如果不提供则使用默认的
         persist_directory: 向量数据库路径
     """
-    embeddings = get_embeddings()
+    if embeddings is None:
+        embeddings = get_embeddings()
     vectorstore = Chroma(
         persist_directory=persist_directory,
         embedding_function=embeddings,

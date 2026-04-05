@@ -39,6 +39,8 @@ from src.tools.rag_tools import (
     retrieve_standard_answer,
     retrieve_by_skill_point,
 )
+from src.services.llm_service import InterviewLLMService
+from src.services.embedding_service import compute_similarity
 
 
 # =============================================================================
@@ -156,11 +158,11 @@ class InterviewService:
         if self.knowledge_base_id:
             await self._load_knowledge_base()
 
-        # 保存到 Redis
-        await save_to_session_memory(self.session_id, self.context)
-
         # 生成第一个问题
         question = await self._generate_next_question()
+
+        # 保存到 Redis（问题生成后）
+        await save_to_session_memory(self.session_id, self.context)
 
         return question
 
@@ -175,6 +177,11 @@ class InterviewService:
         Returns:
             问答响应
         """
+        import logging
+        import sys
+        logger = logging.getLogger(__name__)
+        logger.info(f"[submit_answer] START resume_context len={len(self.context.resume_context)}, context id={id(self.context)}")
+
         if not self.state or not self.context:
             raise ValueError("面试未开始")
 
@@ -187,7 +194,24 @@ class InterviewService:
         # REALTIME 模式：立即生成反馈
         feedback = None
         if self.feedback_mode == FeedbackMode.REALTIME:
-            feedback = await self._generate_feedback(question_id, user_answer, deviation_score)
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"[submit_answer] REALTIME mode, generating feedback...")
+            try:
+                feedback = await self._generate_feedback(question_id, user_answer, deviation_score)
+                logger.info(f"[submit_answer] feedback generated: {feedback.content[:50]}...")
+                # 存储反馈到 pending_feedbacks 用于 SSE 推送
+                self.context.pending_feedbacks.append({
+                    "question_id": question_id,
+                    "deviation": deviation_score,
+                    "is_correct": is_correct,
+                    "feedback_content": feedback.content,
+                    "feedback_type": feedback.feedback_type.value if feedback.feedback_type else "comment",
+                    "guidance": feedback.guidance,
+                })
+            except Exception as e:
+                logger.error(f"[submit_answer] feedback generation failed: {e}", exc_info=True)
+                raise
         else:
             # RECORDED 模式：将评估结果存入 pending_feedbacks
             self.context.pending_feedbacks.append({
@@ -217,11 +241,14 @@ class InterviewService:
             error_count=new_error_count
         )
 
-        # 更新 context
+        # 更新 context - 保存问题内容以便后续追问时使用
+        question_content = self.state.current_question.content if self.state.current_question else ""
         self.context.answers.append({
             "question_id": question_id,
+            "question_content": question_content,
             "answer": user_answer,
             "deviation": deviation_score,
+            "series": self.state.current_series,
         })
         self.context.error_count = new_error_count
 
@@ -248,16 +275,26 @@ class InterviewService:
                     feedback_type=FeedbackType.REMINDER,
                 )
 
-        # 检查是否需要切换到下一个系列
-        if self._is_series_complete():
-            await self._switch_to_next_series()
-
         # 判断是否继续
         should_continue = self._should_continue()
         next_question = None
 
         if should_continue:
-            next_question = await self._generate_next_question()
+            # 检查是否需要追问（基于偏差分数）
+            # 追问条件：0.3 <= deviation < 0.6 且未达到最大追问深度
+            if self._should_ask_followup(deviation_score):
+                # 生成追问（基于用户回答）
+                current_q = self.state.current_question
+                next_question = await self._generate_followup_question(
+                    current_question=current_q,
+                    user_answer=user_answer,
+                    deviation_score=deviation_score,
+                )
+            else:
+                # 生成下一个新问题前，先检查是否需要切换系列
+                if self._is_series_complete():
+                    await self._switch_to_next_series()
+                next_question = await self._generate_next_question()
 
         # 更新记忆
         await save_to_session_memory(self.session_id, self.context)
@@ -315,9 +352,47 @@ class InterviewService:
     # =============================================================================
 
     async def _load_knowledge_base(self):
-        """加载知识库"""
-        # TODO: 从 RAG 加载知识库到 context
-        pass
+        """加载知识库
+
+        从向量数据库加载与当前面试相关的知识上下文
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        if not self.context:
+            return
+
+        logger.info(f"[_load_knowledge_base] resume_id={self.resume_id}, knowledge_base_id={self.knowledge_base_id}")
+
+        # 如果有简历ID，使用元数据过滤加载简历相关内容
+        if self.resume_id:
+            try:
+                docs = await retrieve_knowledge(
+                    query="简历 项目 经验 技术栈",
+                    top_k=10,
+                    filter_metadata={"resume_id": self.resume_id}
+                )
+                logger.info(f"[_load_knowledge_base] retrieved {len(docs)} docs for resume_id={self.resume_id}")
+                if docs:
+                    self.context.resume_context = "\n".join([doc.page_content for doc in docs])
+                    logger.info(f"[_load_knowledge_base] set resume_context length={len(self.context.resume_context)}")
+            except Exception as e:
+                logger.error(f"[_load_knowledge_base] error loading resume: {e}")
+
+        # 如果有知识库ID，加载知识库相关内容
+        if self.knowledge_base_id:
+            try:
+                docs = await retrieve_knowledge(
+                    query="面试问题 技术项目 经验",
+                    top_k=10,
+                    filter_metadata={"resume_id": self.knowledge_base_id}
+                )
+                logger.info(f"[_load_knowledge_base] retrieved {len(docs)} docs for knowledge_base_id={self.knowledge_base_id}")
+                if docs:
+                    self.context.knowledge_context = "\n".join([doc.page_content for doc in docs])
+                    logger.info(f"[_load_knowledge_base] set knowledge_context length={len(self.context.knowledge_context)}")
+            except Exception as e:
+                logger.error(f"[_load_knowledge_base] error loading knowledge: {e}")
 
     async def _generate_next_question(self) -> Question:
         """
@@ -326,6 +401,10 @@ class InterviewService:
         Returns:
             下一个问题
         """
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"[_generate_next_question] ENTRY resume_context len={len(self.context.resume_context)}, context id={id(self.context)}")
+
         # 检查是否有预生成的问题
         cached_q = await get_cached_next_question(
             self.session_id,
@@ -333,6 +412,7 @@ class InterviewService:
         )
 
         if cached_q:
+            logger.info(f"[_generate_next_question] USING CACHED Q, resume_context len={len(self.context.resume_context)}, context id={id(self.context)}")
             # 使用预生成的问题
             question = Question(
                 content=cached_q,
@@ -341,13 +421,32 @@ class InterviewService:
                 number=len(self.state.answers) + 1,
             )
         else:
-            # 动态生成
-            # TODO: 使用 LLM 生成问题
-            question = Question(
-                content=f"[模拟问题 {self.state.current_series}-{len(self.state.answers) + 1}] 请介绍你的项目经验",
-                question_type=QuestionType.INITIAL,
-                series=self.state.current_series,
-                number=len(self.state.answers) + 1,
+            logger.info(f"[_generate_next_question] GENERATING NEW Q, resume_context len={len(self.context.resume_context)}, context id={id(self.context)}")
+            # 动态生成 - 使用 LLM
+            logger.info(f"[_generate_next_question] resume_id={self.resume_id}")
+
+            resume_info = self.context.resume_context or self.resume_id or "无简历信息"
+            logger.info(f"[_generate_next_question] final resume_info len={len(resume_info)}")
+
+            llm_service = InterviewLLMService(
+                resume_info=resume_info
+            )
+
+            # 获取主题领域
+            topic_area = self._get_next_topic()
+
+            # 获取知识库上下文
+            knowledge_context = ""
+            if self.context.knowledge_context:
+                knowledge_context = self.context.knowledge_context
+
+            # 使用 LLM 生成问题
+            question = await llm_service.generate_question(
+                series_num=self.state.current_series,
+                question_num=len(self.state.answers) + 1,
+                interview_mode=self.interview_mode.value,
+                topic_area=topic_area,
+                knowledge_context=knowledge_context,
             )
 
         # 生成问题ID
@@ -363,10 +462,106 @@ class InterviewService:
 
         # 如果是专项训练模式，检查知识库
         if self.interview_mode == InterviewMode.TRAINING and self.context.knowledge_base_id:
-            # TODO: 检查知识库是否有相关内容
-            pass
+            # 检索相关技能点知识
+            try:
+                docs = await retrieve_by_skill_point(
+                    skill_point=question.content[:20],  # 取前20字作为技能点查询
+                    top_k=3
+                )
+                if docs:
+                    self.context.current_knowledge = "\n".join([doc.page_content for doc in docs])
+            except Exception:
+                pass
 
         return question
+
+    async def _generate_next_question_stream(self):
+        """
+        生成下一个问题（流式）
+
+        Yields:
+            问题的每个 token
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"[_generate_next_question_stream] ENTRY resume_context len={len(self.context.resume_context)}")
+
+        resume_info = self.context.resume_context or self.resume_id or "无简历信息"
+        logger.info(f"[_generate_next_question_stream] resume_info preview: {resume_info[:100]}...")
+        topic_area = self._get_next_topic()
+        knowledge_context = self.context.knowledge_context or ""
+
+        llm_service = InterviewLLMService(
+            resume_info=resume_info
+        )
+
+        # 生成问题ID
+        question_number = len(self.state.answers) + 1
+        question_id = f"q-{self.session_id}-{self.state.current_series}-{question_number}"
+        logger.info(f"[_generate_next_question_stream] question_id={question_id}")
+
+        # 先发送 metadata
+        yield {
+            "type": "question_start",
+            "data": {
+                "question_id": question_id,
+                "series": self.state.current_series,
+                "number": question_number,
+            }
+        }
+        logger.info(f"[_generate_next_question_stream] sent question_start event")
+
+        # 流式生成问题，收集完整内容
+        full_content = ""
+        token_count = 0
+        try:
+            async for token in llm_service.generate_question_stream(
+                series_num=self.state.current_series,
+                question_num=question_number,
+                interview_mode=self.interview_mode.value,
+                topic_area=topic_area,
+                knowledge_context=knowledge_context,
+            ):
+                token_count += 1
+                full_content += token
+                logger.info(f"[_generate_next_question_stream] token {token_count}: {token[:20]}...")
+                yield {
+                    "type": "token",
+                    "data": {"content": token}
+                }
+            logger.info(f"[_generate_next_question_stream] streaming complete, total_tokens={token_count}, full_content len={len(full_content)}")
+        except Exception as e:
+            logger.error(f"[_generate_next_question_stream] error: {e}")
+            full_content = "请介绍一下你最近做的项目，以及在其中承担的角色？"
+            yield {
+                "type": "token",
+                "data": {"content": full_content}
+            }
+
+        # 创建 Question 对象并更新 state
+        question = Question(
+            content=full_content,
+            question_type=QuestionType.INITIAL,
+            series=self.state.current_series,
+            number=question_number,
+            parent_question_id=None,
+        )
+        self.state = replace(
+            self.state,
+            current_question=question,
+            current_question_id=question_id,
+        )
+        self.context.current_question_id = question_id
+        # 保存问题内容到 context 以便后续 submit_answer 使用
+        self.context.question_contents[question_id] = full_content
+        logger.info(f"[_generate_next_question_stream] state updated with question, content len={len(full_content)}")
+
+        # 发送完成信号
+        yield {
+            "type": "question_end",
+            "data": {"question_id": question_id}
+        }
+        logger.info(f"[_generate_next_question_stream] sent question_end event")
 
     async def _evaluate_answer(
         self,
@@ -376,20 +571,46 @@ class InterviewService:
         """
         评估回答
 
+        使用 Embedding 相似度 + LLM 判断回答质量
+
         Returns:
             评估结果字典
         """
-        # TODO: 使用 embedding 计算相似度
-        # TODO: 使用 LLM 判断回答质量
+        # 获取当前问题内容
+        question_content = ""
+        if self.state.current_question:
+            question_content = self.state.current_question.content
 
-        # 模拟评估
-        deviation_score = 0.8  # 默认 80% 相似度
-        is_correct = deviation_score >= 0.6
+        # 检索标准回答（如果有）
+        standard_answer = None
+        try:
+            doc = await retrieve_standard_answer(question_content)
+            if doc:
+                standard_answer = doc.page_content
+        except Exception:
+            pass
 
-        return {
-            "deviation_score": deviation_score,
-            "is_correct": is_correct,
-        }
+        # 使用 LLM 服务评估回答
+        llm_service = InterviewLLMService(
+            resume_info=self.context.resume_context or self.resume_id or ""
+        )
+
+        evaluation = await llm_service.evaluate_answer(
+            question=question_content,
+            user_answer=user_answer,
+            standard_answer=standard_answer,
+        )
+
+        # 如果没有标准回答，使用 embedding 相似度作为补充
+        if not standard_answer and self.context.current_knowledge:
+            # 使用知识库内容作为参考计算相似度
+            similarity = await compute_similarity(user_answer, self.context.current_knowledge)
+            # 综合分数
+            final_score = evaluation.get("deviation_score", 0.5) * 0.7 + similarity * 0.3
+            evaluation["deviation_score"] = final_score
+            evaluation["is_correct"] = final_score >= 0.6
+
+        return evaluation
 
     async def _generate_feedback(
         self,
@@ -400,7 +621,7 @@ class InterviewService:
         """
         生成反馈
 
-        根据 deviation_score 生成不同类型的实时反馈:
+        根据 deviation_score 使用 LLM 生成不同类型的实时反馈:
         - deviation_score < 0.3: CORRECTION (直接给出正确答案)
         - deviation_score < 0.6: GUIDANCE (提示性追问)
         - deviation_score >= 0.6: COMMENT (正面点评)
@@ -409,32 +630,28 @@ class InterviewService:
             反馈内容
         """
         is_correct = deviation_score >= 0.6
-        feedback_content = ""
-        guidance = None
-        feedback_type = FeedbackType.COMMENT
 
-        if deviation_score < 0.3:
-            # CORRECTION: 偏离方向，直接给出正确答案
-            feedback_type = FeedbackType.CORRECTION
-            feedback_content = "回答偏离了主要方向。标准答案是..."
-            guidance = "请注意理解题目的核心要求，从头梳理思路。"
-        elif deviation_score < 0.6:
-            # GUIDANCE: 部分正确，提示性追问引导
-            feedback_type = FeedbackType.GUIDANCE
-            feedback_content = "你提到的方向有一定道理，能否进一步说明..."
-            guidance = "请尝试从另一个角度思考这个问题？"
-        else:
-            # COMMENT: 基本正确，正面点评
-            feedback_type = FeedbackType.COMMENT
-            feedback_content = "很好，你的理解基本正确，继续深入。"
+        # 获取当前问题内容
+        question_content = ""
+        if self.state.current_question:
+            question_content = self.state.current_question.content
 
-        return Feedback(
-            question_id=question_id,
-            content=feedback_content,
-            is_correct=is_correct,
-            guidance=guidance,
-            feedback_type=feedback_type,
+        # 使用 LLM 生成反馈
+        llm_service = InterviewLLMService(
+            resume_info=self.context.resume_context or self.resume_id or ""
         )
+
+        feedback = await llm_service.generate_feedback(
+            question=question_content,
+            user_answer=user_answer,
+            deviation_score=deviation_score,
+            is_correct=is_correct,
+        )
+
+        # 设置 question_id（使用 replace 保持 frozen dataclass 不可变性）
+        feedback = replace(feedback, question_id=question_id)
+
+        return feedback
 
     async def generate_final_feedback(self) -> FinalFeedback:
         """
@@ -645,9 +862,25 @@ class InterviewService:
         if next_series > self.max_series:
             return
 
-        # TODO: 调用 LLM 生成问题
-        # 目前使用模拟实现
-        generated_question = f"[预生成问题 系列{next_series}-1] 关于{self._get_next_topic()}"
+        # 使用 LLM 生成下一个问题
+        llm_service = InterviewLLMService(
+            resume_info=self.context.resume_context or self.resume_id or "无简历信息"
+        )
+
+        topic_area = self._get_next_topic()
+
+        try:
+            question = await llm_service.generate_question(
+                series_num=next_series,
+                question_num=1,
+                interview_mode=self.interview_mode.value,
+                topic_area=topic_area,
+                knowledge_context=self.context.knowledge_context or "",
+            )
+            generated_question = question.content
+        except Exception:
+            # LLM 调用失败时使用回退
+            generated_question = f"关于{topic_area}，请介绍一下你的相关经验和理解？"
 
         # 存入 Redis 缓存
         await cache_next_series_question(
@@ -741,6 +974,44 @@ class InterviewService:
             return "、".join(keywords[:2])  # 最多返回两个关键词
         return "相关知识点"
 
+    def _build_conversation_history(self) -> str:
+        """构建对话历史上下文 - 包含当前系列的所有问答"""
+        if not self.context or not self.context.answers:
+            return "无历史问答"
+
+        # 获取当前系列号
+        current_series = self.state.current_series if self.state else 1
+
+        # 筛选当前系列的所有问答
+        series_answers = [
+            ans for ans in self.context.answers
+            if ans.get("series", 1) == current_series
+        ]
+
+        if not series_answers:
+            return "无历史问答"
+
+        # 构建系列对话历史
+        history_parts = []
+        for ans in series_answers:
+            question_content = ans.get("question_content", "")
+            answer_content = ans.get("answer", "")
+            if question_content:
+                history_parts.append(f"问: {question_content}\n答: {answer_content}")
+            else:
+                history_parts.append(f"答: {answer_content}")
+
+        return "\n\n".join(history_parts)
+
+    def _get_followup_direction(self, deviation_score: float) -> str:
+        """根据偏差分数获取追问方向"""
+        if deviation_score < 0.3:
+            return "纠正错误理解，深入讲解正确概念"
+        elif deviation_score < 0.6:
+            return "引导深入项目细节和实践经验"
+        else:
+            return "鼓励继续深入，引导展示更多项目经验"
+
     async def _generate_followup_question(
         self,
         current_question: Question,
@@ -765,7 +1036,6 @@ class InterviewService:
 
         # 判断是否需要追问
         if not self._should_ask_followup(deviation_score):
-            # 返回一个空的 Question 占位（实际不会使用）
             return Question(
                 content="",
                 question_type=QuestionType.FOLLOWUP,
@@ -774,20 +1044,31 @@ class InterviewService:
                 parent_question_id=None,
             )
 
-        # 获取追问主题
-        topic = self._get_followup_topic(current_question)
+        # 构建对话历史上下文
+        conversation_history = self._build_conversation_history()
 
-        # 生成追问内容（基于偏差程度和主题）
-        if deviation_score < 0.3:
-            # 极低偏差：直接纠错，不生成追问内容
-            followup_content = f"让我来纠正一下这个概念..."
-        elif deviation_score < 0.6:
-            # 中等偏差：生成提示性追问
-            followup_num = self.state.followup_depth + 1
-            followup_content = f"关于{topic}，能否详细说说你在项目中是如何实践的？"
-        else:
-            # 高偏差：深入追问
-            followup_content = f"你提到{topic}，能具体说说遇到了什么挑战吗？"
+        # 使用 LLM 生成追问
+        llm_service = InterviewLLMService(
+            resume_info=self.context.resume_context or "无简历信息"
+        )
+
+        try:
+            followup_content = await llm_service.generate_followup_question(
+                original_question=current_question,
+                user_answer=user_answer,
+                followup_direction=self._get_followup_direction(deviation_score),
+                conversation_history=conversation_history,
+            )
+            followup_content = followup_content.content
+        except Exception:
+            # Fallback to simple follow-up if LLM fails
+            topic = self._get_followup_topic(current_question)
+            if deviation_score < 0.3:
+                followup_content = "让我来纠正一下这个概念..."
+            elif deviation_score < 0.6:
+                followup_content = f"关于{topic}，能否详细说说你在项目中是如何实践的？"
+            else:
+                followup_content = f"你提到{topic}，能具体说说遇到了什么挑战吗？"
 
         # 生成追问的问题ID
         followup_question_id = f"q-{self.session_id}-{current_question.series}-{current_question.number + self.state.followup_depth + 1}"
@@ -815,13 +1096,15 @@ class InterviewService:
         if self.context:
             self.context.followup_depth = self.state.followup_depth
             self.context.followup_chain = new_followup_chain
+            # 保存追问内容以便后续 submit_answer 使用
+            self.context.question_contents[followup_question_id] = followup_content
 
         return Question(
             content=followup_content,
             question_type=QuestionType.FOLLOWUP,
             series=current_question.series,
             number=current_question.number + self.state.followup_depth,
-            parent_question_id=current_question.question_type,
+            parent_question_id=current_question.question_id if hasattr(current_question, 'question_id') else None,
         )
 
 

@@ -92,6 +92,41 @@ async def submit_training_answer(request: SubmitAnswerRequest) -> QAResponse:
         )
         service.context = context
 
+        # 加载状态（与 interview.py 相同的修复）
+        if context.current_question_id:
+            from src.agent.state import InterviewState, Question, Answer, QuestionType
+            # 从 context.answers 恢复 dict 格式的回答记录
+            answers_dict = {}
+            for ans in context.answers:
+                if 'question_id' in ans and 'answer' in ans:
+                    answers_dict[ans['question_id']] = Answer(
+                        question_id=ans['question_id'],
+                        content=ans['answer'],
+                        deviation_score=ans.get('deviation', 0.0),
+                    )
+
+            service.state = InterviewState(
+                session_id=request.session_id,
+                resume_id=context.resume_id,
+                current_series=context.current_series,
+                current_question=Question(
+                    content="",
+                    question_type=QuestionType.INITIAL,
+                    series=context.current_series,
+                    number=len(context.answers) + 1,
+                ),
+                current_question_id=context.current_question_id,
+                answers=answers_dict,
+                followup_depth=context.followup_depth,
+                followup_chain=context.followup_chain or [],
+                error_count=context.error_count,
+                max_followup_depth=3,
+                series_history={},
+                interview_mode=context.interview_mode,
+                feedback_mode=context.feedback_mode,
+                error_threshold=context.error_threshold,
+            )
+
         # 提交回答
         response = await service.submit_answer(
             user_answer=request.user_answer,
@@ -164,12 +199,23 @@ async def end_training(
         # 结束面试
         result = await service.end_interview()
 
+        # 处理 final_feedback（可能是 FinalFeedback 对象或 dict）
+        final_feedback = result.get("final_feedback", {})
+        if hasattr(final_feedback, '__dict__'):
+            final_feedback = {
+                "overall_score": final_feedback.overall_score,
+                "series_scores": final_feedback.series_scores,
+                "strengths": final_feedback.strengths,
+                "weaknesses": final_feedback.weaknesses,
+                "suggestions": final_feedback.suggestions,
+            }
+
         return TrainingResult(
             session_id=session_id,
             status="completed",
             skill_point=context.knowledge_base_id or "",
             questions_answered=len(context.answers),
-            final_feedback=result.get("final_feedback", {}),
+            final_feedback=final_feedback,
         )
 
     except Exception as e:

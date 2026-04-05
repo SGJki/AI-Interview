@@ -79,6 +79,11 @@ async def save_to_session_memory(
         "followup_chain": state.followup_chain,
         "pending_feedbacks": state.pending_feedbacks,
         "error_count": state.error_count,
+        # 上下文内容（用于跨 API 调用保持上下文）
+        "resume_context": state.resume_context,
+        "knowledge_context": state.knowledge_context,
+        "current_knowledge": state.current_knowledge,
+        "question_contents": state.question_contents,
     }
 
     key = _session_key(session_id, "state")
@@ -119,6 +124,11 @@ async def get_session_memory(session_id: str) -> Optional[InterviewContext]:
         followup_chain=state_data.get("followup_chain", []),
         pending_feedbacks=state_data.get("pending_feedbacks", []),
         error_count=state_data.get("error_count", 0),
+        # 恢复上下文内容
+        resume_context=state_data.get("resume_context", ""),
+        knowledge_context=state_data.get("knowledge_context", ""),
+        current_knowledge=state_data.get("current_knowledge", ""),
+        question_contents=state_data.get("question_contents", {}),
     )
 
 
@@ -307,6 +317,10 @@ class SessionStateManager:
             "followup_chain": state.followup_chain,
             "pending_feedbacks": state.pending_feedbacks,
             "error_count": state.error_count,
+            "resume_context": state.resume_context,
+            "knowledge_context": state.knowledge_context,
+            "current_knowledge": state.current_knowledge,
+            "question_contents": state.question_contents,
         }
 
         key = self._state_key(session_id)
@@ -358,6 +372,10 @@ class SessionStateManager:
                 followup_chain=state_data.get("followup_chain", []),
                 pending_feedbacks=state_data.get("pending_feedbacks", []),
                 error_count=state_data.get("error_count", 0),
+                resume_context=state_data.get("resume_context", ""),
+                knowledge_context=state_data.get("knowledge_context", ""),
+                current_knowledge=state_data.get("current_knowledge", ""),
+                question_contents=state_data.get("question_contents", {}),
             )
         except (json.JSONDecodeError, KeyError, ValueError):
             # Data corruption or missing required fields

@@ -187,6 +187,12 @@ class InterviewContext:
     created_at: datetime = field(default_factory=datetime.now)
     error_count: int = 0
 
+    # LLM 上下文（运行时）
+    resume_context: str = ""  # 简历提取的上下文信息
+    knowledge_context: str = ""  # 知识库检索的上下文
+    current_knowledge: str = ""  # 当前问题相关的知识
+    question_contents: dict[str, str] = field(default_factory=dict)  # question_id -> question content
+
 
 @dataclass(frozen=True)
 class FinalFeedback:

@@ -18,7 +18,14 @@
       "Bash(taskkill /F /IM pytest.exe)",
       "Bash(python -m pytest tests/test_database.py -v --tb=short)",
       "Bash(.venv\\\\Scripts\\\\activate)",
-      "Bash(uv add:*)"
+      "Bash(uv add:*)",
+      "Bash(curl -s http://localhost:8000/health)",
+      "Bash(netstat -ano)",
+      "Bash(findstr \":8000\")",
+      "Bash(findstr \"29596\")",
+      "Bash(curl:*)",
+      "Bash(dir \"C:\\\\Users\\\\13253\\\\dataDisk\\\\Agent_AI\\\\AI-Interview\\\\data\\\\vectorstore\")",
+      "Bash(ls -la \"C:\\\\Users\\\\13253\\\\dataDisk\\\\Agent_AI\\\\AI-Interview\"/*.py \"C:\\\\Users\\\\13253\\\\dataDisk\\\\Agent_AI\\\\AI-Interview\"/*.sh \"C:\\\\Users\\\\13253\\\\dataDisk\\\\Agent_AI\\\\AI-Interview\"/*.bat)"
     ]
   }
 }

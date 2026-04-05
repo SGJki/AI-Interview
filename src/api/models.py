@@ -14,8 +14,8 @@ from pydantic import BaseModel, Field
 
 class StartInterviewRequest(BaseModel):
     """开始面试请求"""
-    resume_id: str = Field(..., description="简历ID")
     session_id: str = Field(..., description="会话ID")
+    resume_id: Optional[str] = Field(None, description="简历ID/知识库ID（当提供简历内容时构建）")
     knowledge_base_id: Optional[str] = Field(None, description="知识库ID")
     interview_mode: str = Field("free", description="面试模式: free/training")
     feedback_mode: str = Field("recorded", description="反馈模式: realtime/recorded")
@@ -48,8 +48,10 @@ class RagQueryRequest(BaseModel):
 class BuildKnowledgeRequest(BaseModel):
     """构建知识库请求"""
     knowledge_base_id: str = Field(..., description="知识库ID")
-    source_type: str = Field(..., description="数据源类型: pdf/url/text")
+    source_type: str = Field(..., description="数据源类型: resume/preset/standard/skill_point/full")
     source_path: Optional[str] = Field(None, description="数据源路径")
+    content: Optional[str] = Field(None, description="简历文本内容（当 source_type=resume 时使用）")
+    skill_points: Optional[list[str]] = Field(None, description="技能点列表（当 source_type=skill_point 时使用）")
 
 
 # =============================================================================
