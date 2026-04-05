@@ -1,0 +1,74 @@
+"""
+FastAPI Application Entry Point
+
+AI Interview Agent - FastAPI Server
+
+启动方式:
+    uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
+"""
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from src.api.routers import interview_router, training_router, knowledge_router
+
+
+# =============================================================================
+# FastAPI Application
+# =============================================================================
+
+app = FastAPI(
+    title="AI Interview Agent",
+    description="AI 面试助手 - 支持实时点评和流式输出",
+    version="0.1.0",
+)
+
+# =============================================================================
+# CORS Configuration
+# =============================================================================
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # 生产环境应限制具体域名
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+# =============================================================================
+# Include Routers
+# =============================================================================
+
+app.include_router(interview_router)
+app.include_router(training_router)
+app.include_router(knowledge_router)
+
+
+# =============================================================================
+# Health Check Endpoint
+# =============================================================================
+
+@app.get("/health")
+async def health_check():
+    """健康检查"""
+    return {"status": "healthy", "service": "ai-interview"}
+
+
+@app.get("/")
+async def root():
+    """根路径"""
+    return {
+        "service": "AI Interview Agent",
+        "version": "0.1.0",
+        "docs": "/docs",
+    }
+
+
+# =============================================================================
+# Main Entry Point
+# =============================================================================
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000)

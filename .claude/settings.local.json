@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git:*)",
+      "Bash(uv run:*)",
+      "Bash(uv sync:*)",
+      "Bash(python -m pytest tests/test_enterprise_knowledge.py -v)",
+      "Bash(.venv/Scripts/python -m pytest tests/test_enterprise_knowledge.py -v)",
+      "Bash(.venv/Scripts/python.exe -m pytest tests/test_rag_enhancements.py -v --tb=short)",
+      "Bash(python -m pytest tests/test_training_selector.py -v)",
+      "Bash(.venv/Scripts/python.exe -m pytest tests/test_training_selector.py -v)",
+      "Bash(.venv/Scripts/python.exe -m pytest tests/ -v --tb=short)",
+      "Bash(.venv/Scripts/activate)",
+      "Bash(python -m pytest tests/test_training_knowledge_matcher.py -v)",
+      "Bash(.\\\\.venv\\\\Scripts\\\\activate)",
+      "Bash(python -m pytest tests/test_training_followup.py -v)",
+      "Bash(tasklist)",
+      "Bash(taskkill /F /IM pytest.exe)",
+      "Bash(python -m pytest tests/test_database.py -v --tb=short)",
+      "Bash(.venv\\\\Scripts\\\\activate)",
+      "Bash(uv add:*)"
+    ]
+  }
+}
