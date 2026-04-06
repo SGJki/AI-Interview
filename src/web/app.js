@@ -353,6 +353,7 @@ async function submitInterviewAnswer() {
     btn.disabled = true;
 
     try {
+        // 使用SSE流式获取追问
         const response = await fetch(`${API_BASE}/interview/answer`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -365,27 +366,99 @@ async function submitInterviewAnswer() {
 
         if (!response.ok) throw new Error('提交失败');
 
-        const data = await response.json();
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let questionContent = '';
+        let questionId = '';
+        let questionSeries = currentQuestion.series || 1;
+        let questionNumber = currentQuestion.number + 1;
+        let eventType = '';
+        let dataBuffer = '';
 
-        // Show feedback
-        if (data.feedback) {
-            showInterviewFeedback({
-                feedback_content: data.feedback.content || '',
-                is_correct: data.feedback.is_correct,
-                feedback_type: data.feedback.feedback_type,
-                guidance: data.feedback.guidance,
-            });
+        // 设置问题显示容器，带光标（复用getNextQuestion的UI模式）
+        const container = document.getElementById('interview-question');
+        container.innerHTML = `
+            <div class="question-text">
+                <p><strong>问题 <span id="q-series">${questionSeries}</span>.<span id="q-number">${questionNumber}</span>:</strong></p>
+                <p id="q-content" style="margin-top: 10px;"><span id="typewriter-cursor" class="blinking-cursor">|</span></p>
+            </div>
+        `;
+        document.getElementById('interview-answer-section').classList.add('hidden');
+
+        const qContent = document.getElementById('q-content');
+        const qSeries = document.getElementById('q-series');
+        const qNumber = document.getElementById('q-number');
+        const cursor = document.getElementById('typewriter-cursor');
+
+        // 逐行读取SSE流
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value, { stream: true });
+            const lines = chunk.split('\n');
+
+            for (const line of lines) {
+                if (line.startsWith('event:')) {
+                    eventType = line.slice(6).trim();
+                } else if (line.startsWith('data:')) {
+                    dataBuffer = line.slice(5).trim();
+                } else if (line === '') {
+                    // 空行表示事件结束
+                    if (eventType && dataBuffer) {
+                        try {
+                            const data = JSON.parse(dataBuffer);
+
+                            if (eventType === 'evaluation') {
+                                // 评估结果，可以用来更新UI或显示评分
+                                console.log('[submit] evaluation:', data);
+
+                            } else if (eventType === 'question_start') {
+                                questionId = data.question_id;
+                                questionSeries = data.series || questionSeries;
+                                questionNumber = data.number || questionNumber;
+                                qSeries.textContent = questionSeries;
+                                qNumber.textContent = questionNumber;
+                                currentQuestion = { question_id: questionId, series: questionSeries, number: questionNumber, content: '' };
+
+                            } else if (eventType === 'token') {
+                                const token = data.content || '';
+                                questionContent += token;
+                                currentQuestion = { question_id: questionId, series: questionSeries, number: questionNumber, content: questionContent };
+                                cursor.insertAdjacentText('beforebegin', token);
+
+                            } else if (eventType === 'question_end') {
+                                currentQuestion = { question_id: questionId, series: questionSeries, number: questionNumber, content: questionContent };
+
+                            } else if (eventType === 'feedback') {
+                                // 待发送的反馈（来自pending_feedbacks）
+                                showInterviewFeedback(data);
+
+                            } else if (eventType === 'end') {
+                                // 流结束
+                                if (cursor) cursor.remove();
+                                if (data.should_continue) {
+                                    document.getElementById('interview-answer-section').classList.remove('hidden');
+                                    document.getElementById('interview-answer-input').focus();
+                                } else {
+                                    // 面试结束
+                                    document.getElementById('interview-active').classList.add('hidden');
+                                    document.getElementById('interview-result').classList.remove('hidden');
+                                }
+                            }
+                        } catch (e) {
+                            console.error('SSE parse error:', e);
+                        }
+                        eventType = '';
+                        dataBuffer = '';
+                    }
+                }
+            }
         }
 
-        // Show next question if available
-        if (data.next_question_content) {
-            currentQuestion = {
-                question_id: data.next_question_id,
-                series: currentQuestion.series,
-                number: currentQuestion.number + 1,
-                content: data.next_question_content,
-            };
-            displayInterviewQuestion(currentQuestion);
+        // 确保光标被移除
+        if (cursor && cursor.parentNode) {
+            cursor.remove();
         }
 
     } catch (error) {

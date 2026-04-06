@@ -524,7 +524,7 @@ class InterviewService:
             ):
                 token_count += 1
                 full_content += token
-                logger.info(f"[_generate_next_question_stream] token {token_count}: {token[:20]}...")
+                logger.debug(f"[_generate_next_question_stream] token {token_count}: {token[:20]}...")
                 yield {
                     "type": "token",
                     "data": {"content": token}
@@ -1106,6 +1106,129 @@ class InterviewService:
             number=current_question.number + self.state.followup_depth,
             parent_question_id=self.state.current_question_id,
         )
+
+    async def _generate_followup_question_stream(
+        self,
+        current_question: Question,
+        user_answer: str,
+        deviation_score: float
+    ):
+        """
+        生成追问（流式）
+
+        基于当前问题、回答和偏差度生成追问，通过SSE流式输出
+
+        Yields:
+            追问的每个 token 和元数据
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"[_generate_followup_question_stream] ENTRY")
+
+        if self.state is None:
+            raise ValueError("面试状态未初始化")
+
+        # 判断是否需要追问
+        if not self._should_ask_followup(deviation_score):
+            logger.info(f"[_generate_followup_question_stream] _should_ask_followup returned False, skipping")
+            return
+
+        # 生成追问的问题ID
+        question_number = current_question.number + self.state.followup_depth + 1
+        followup_question_id = f"q-{self.session_id}-{current_question.series}-{question_number}"
+        logger.info(f"[_generate_followup_question_stream] followup_question_id={followup_question_id}")
+
+        # 先发送 metadata
+        yield {
+            "type": "question_start",
+            "data": {
+                "question_id": followup_question_id,
+                "series": current_question.series,
+                "number": question_number,
+                "question_type": "followup",
+                "parent_question_id": self.state.current_question_id,
+            }
+        }
+        logger.info(f"[_generate_followup_question_stream] sent question_start event")
+
+        # 构建对话历史上下文
+        conversation_history = self._build_conversation_history()
+
+        # 使用 LLM 生成追问
+        llm_service = InterviewLLMService(
+            resume_info=self.context.resume_context or "无简历信息"
+        )
+
+        # 流式生成追问，收集完整内容
+        full_content = ""
+        token_count = 0
+        try:
+            async for token in llm_service.generate_followup_question_stream(
+                original_question=current_question,
+                user_answer=user_answer,
+                followup_direction=self._get_followup_direction(deviation_score),
+                conversation_history=conversation_history,
+            ):
+                token_count += 1
+                full_content += token
+                logger.debug(f"[_generate_followup_question_stream] token {token_count}: {token[:20]}...")
+                yield {
+                    "type": "token",
+                    "data": {"content": token}
+                }
+            logger.info(f"[_generate_followup_question_stream] streaming complete, total_tokens={token_count}, full_content len={len(full_content)}")
+        except Exception as e:
+            logger.error(f"[_generate_followup_question_stream] error: {e}")
+            topic = self._get_followup_topic(current_question)
+            if deviation_score < 0.3:
+                full_content = "让我来纠正一下这个概念..."
+            elif deviation_score < 0.6:
+                full_content = f"关于{topic}，能否详细说说你在项目中是如何实践的？"
+            else:
+                full_content = f"你提到{topic}，能具体说说遇到了什么挑战吗？"
+            yield {
+                "type": "token",
+                "data": {"content": full_content}
+            }
+
+        # 更新追问链
+        new_followup_chain = list(self.state.followup_chain)
+        if current_question.question_type == QuestionType.FOLLOWUP:
+            new_followup_chain.append(followup_question_id)
+        else:
+            if new_followup_chain:
+                new_followup_chain.append(followup_question_id)
+            else:
+                new_followup_chain = [followup_question_id]
+
+        # 创建 Question 对象并更新 state
+        question = Question(
+            content=full_content,
+            question_type=QuestionType.FOLLOWUP,
+            series=current_question.series,
+            number=question_number,
+            parent_question_id=self.state.current_question_id,
+        )
+        self.state = replace(
+            self.state,
+            current_question=question,
+            current_question_id=followup_question_id,
+            followup_depth=self.state.followup_depth + 1,
+            followup_chain=new_followup_chain,
+        )
+        self.context.current_question_id = followup_question_id
+        self.context.followup_depth = self.state.followup_depth
+        self.context.followup_chain = new_followup_chain
+        # 保存问题内容到 context 以便后续 submit_answer 使用
+        self.context.question_contents[followup_question_id] = full_content
+        logger.info(f"[_generate_followup_question_stream] state updated with followup question, content len={len(full_content)}")
+
+        # 发送完成信号
+        yield {
+            "type": "question_end",
+            "data": {"question_id": followup_question_id}
+        }
+        logger.info(f"[_generate_followup_question_stream] sent question_end event")
 
 
 # =============================================================================

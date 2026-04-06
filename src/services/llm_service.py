@@ -123,7 +123,7 @@ class InterviewLLMService:
 
         try:
             async for token in invoke_llm_stream(
-                system_prompt=INTERVIEW_SYSTEM_PROMPT,
+                system_prompt="",
                 user_prompt=prompt,
                 temperature=0.7,
             ):
@@ -313,6 +313,42 @@ class InterviewLLMService:
             number=original_question.number + 1,
             parent_question_id=original_question.question_id if hasattr(original_question, 'question_id') else None,
         )
+
+    async def generate_followup_question_stream(
+        self,
+        original_question: Question,
+        user_answer: str,
+        followup_direction: str = "",
+        conversation_history: str = "",
+    ):
+        """
+        生成追问（流式）
+
+        Args:
+            original_question: 原始问题
+            user_answer: 用户回答
+            followup_direction: 追问方向提示
+            conversation_history: 对话历史上下文
+
+        Yields:
+            追问的每个 token
+        """
+        prompt = FOLLOWUP_QUESTION_PROMPT.format(
+            original_question=original_question.content,
+            user_answer=user_answer,
+            followup_direction=followup_direction or "深入技术细节和实践经验",
+            conversation_history=conversation_history or "无历史对话",
+        )
+
+        try:
+            async for token in invoke_llm_stream(
+                system_prompt="",
+                user_prompt=prompt,
+                temperature=0.7,
+            ):
+                yield token
+        except Exception:
+            yield "能否详细说说在这个项目中遇到的具体挑战？"
 
     def add_to_history(self, role: str, content: str):
         """

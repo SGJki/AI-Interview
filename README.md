@@ -256,6 +256,114 @@ InterviewState:
  └─────────────────┘
 ```
 
+## SSE 流式输出
+
+面试 API 全程使用 Server-Sent Events (SSE) 实现流式输出，前端逐 token 显示打字机效果。
+
+### SSE 事件类型
+
+| 事件类型 | 说明 | 数据内容 |
+|---------|------|---------|
+| `question_start` | 问题开始 | question_id, series, number, question_type |
+| `token` | 问题 token | content (单字/词) |
+| `question_end` | 问题结束 | question_id |
+| `evaluation` | 回答评估 | deviation_score, is_correct, error_count |
+| `feedback` | 反馈内容 | feedback_content, feedback_type, guidance |
+| `end` | 流结束 | status, should_continue |
+| `error` | 错误 | error message |
+
+### 请求处理时序图
+
+#### 1. 开始面试 + 获取问题
+
+```
+Client              API                Service              LLM
+  │                  │                    │                  │
+  │──POST /start────>│                    │                  │
+  │                  │──create_service───>│                  │
+  │                  │                    │                  │
+  │                  │<─question──────────│                  │
+  │<─JSON Response───│                    │                  │
+  │                  │                    │                  │
+  │──GET /question──>│                    │                  │
+  │   ?stream=true   │                    │                  │
+  │                  │                    │──invoke_llm─────>│
+  │                  │                    │<─tokens──────────│
+  │<─SSE stream──────│                    │                  │
+  │  event:question_start                 │                  │
+  │  event:token {content:"第"}           │                  │
+  │  event:token {content:"一"}           │                  │
+  │  event:token {content:"题"}           │                  │
+  │  ...                                  │                  │
+  │  event:question_end                   │                  │
+  │  event:feedback {...}                 │                  │
+  │  event:end {status:"ready"}          │                  │
+```
+
+#### 2. 提交回答 + 获取追问
+
+```
+Client              API                Service              LLM
+  │                  │                    │                  │
+  │──POST /answer───>│                    │                  │
+  │                  │                    │──_evaluate──────│
+  │                  │                    │<─deviation──────│
+  │                  │                    │                  │
+  │                  │                    │──_generate_fb───>│
+  │                  │                    │<─feedback────────│
+  │<─SSE stream──────│                    │                  │
+  │  event:evaluation {deviation:0.3}    │                  │
+  │  event:feedback {content:"..."}       │                  │
+  │                  │                    │                  │
+  │                  │                    │──_ask_followup──│
+  │                  │                    │  (if deviation)  │
+  │                  │                    │──invoke_llm─────>│
+  │<─SSE stream──────│                    │<─tokens──────────│
+  │  event:question_start                 │                  │
+  │  event:token {content:"追"}          │                  │
+  │  event:token {content:"问"}          │                  │
+  │  ...                                  │                  │
+  │  event:question_end                   │                  │
+  │  event:end {status:"ready"}          │                  │
+```
+
+#### 3. 前端 SSE 解析示例
+
+```javascript
+const response = await fetch(`/interview/question?session_id=${id}&stream=true`);
+const reader = response.body.getReader();
+const decoder = new TextDecoder();
+
+while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    const chunk = decoder.decode(value, { stream: true });
+    const lines = chunk.split('\n');
+
+    for (const line of lines) {
+        if (line.startsWith('event:')) {
+            eventType = line.slice(6).trim();
+        } else if (line.startsWith('data:')) {
+            const data = JSON.parse(line.slice(5).trim());
+
+            if (eventType === 'question_start') {
+                // 问题开始，显示容器
+            } else if (eventType === 'token') {
+                // 打字机效果：在光标前插入 token
+                cursor.insertAdjacentText('beforebegin', data.content);
+            } else if (eventType === 'question_end') {
+                // 问题完成，移除光标
+            } else if (eventType === 'feedback') {
+                // 显示反馈（思考过程 + 点评）
+            } else if (eventType === 'end') {
+                // 启用输入框，准备下一轮
+            }
+        }
+    }
+}
+```
+
 ## 配置
 
 所有配置统一管理在 `config/config.toml` 的 `[tool.ai-interview]` 下：
@@ -330,7 +438,7 @@ uv run pytest --cov=src --cov-report=term-missing
 
 **测试统计:**
 
-- 总计: 300+ 测试用例
+- 总计: 430+ 测试用例
 - 覆盖: Agent, RAG, API, 数据库, 服务层
 
 ## 项目结构
@@ -384,8 +492,8 @@ eventSource.addEventListener('question', (e) => {
   console.log(`Q${q.series}.${q.number}: ${q.content}`);
 });
 
-// 3. 提交回答
-await fetch('/interview/answer', {
+// 3. 提交回答（SSE 流式获取追问）
+const answerRes = await fetch('/interview/answer', {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
   body: JSON.stringify({
@@ -394,6 +502,9 @@ await fetch('/interview/answer', {
     user_answer: '我的回答是...'
   })
 });
+const answerReader = answerRes.body.getReader();
+// 解析 SSE 流，显示追问打字机效果
+// 事件: evaluation → feedback → question_start/token/question_end → end
 
 // 4. 结束面试
 const endRes = await fetch('/interview/end?session_id=session-456', {
@@ -411,10 +522,11 @@ curl -X POST http://localhost:8000/interview/start \
   -H "Content-Type: application/json" \
   -d '{"resume_id":"r1","session_id":"s1","interview_mode":"free","feedback_mode":"recorded"}'
 
-# 提交回答
+# 提交回答（SSE 流式输出）
 curl -X POST http://localhost:8000/interview/answer \
   -H "Content-Type: application/json" \
   -d '{"session_id":"s1","question_id":"q1","user_answer":"我的回答"}'
+# 返回 SSE 流: evaluation → feedback → question_start/token/question_end → end
 
 # 结束面试
 curl -X POST "http://localhost:8000/interview/end?session_id=s1"
