@@ -68,7 +68,7 @@ class InterviewLLMService:
 
         try:
             question_content = await invoke_llm(
-                system_prompt=INTERVIEW_SYSTEM_PROMPT,
+                system_prompt="",
                 user_prompt=prompt,
                 temperature=0.7,
                 include_reasoning=True,  # 返回思考过程便于调试
@@ -156,7 +156,7 @@ class InterviewLLMService:
 
         try:
             result_text = await invoke_llm(
-                system_prompt="你是一个专业的面试评估专家，输出严格的JSON格式评估结果。",
+                system_prompt="",
                 user_prompt=prompt,
                 temperature=0.3,  # 低温度保证一致性
             )
@@ -293,7 +293,7 @@ class InterviewLLMService:
 
         try:
             followup_content = await invoke_llm(
-                system_prompt=INTERVIEW_SYSTEM_PROMPT,
+                system_prompt="",
                 user_prompt=prompt,
                 temperature=0.7,
                 include_reasoning=True,  # 返回思考过程便于调试
