@@ -1,7 +1,3 @@
-#Current Bug
-
-目前问题输出会重复
-
 # AI Interview Agent
 
 基于 LangGraph + LangChain 的智能 AI 模拟面试官 Agent，支持多系列面试、实时点评、流式输出和专项训练功能。
@@ -21,7 +17,7 @@ AI Interview Agent 能够：
 | 组件 | 技术选型 | 说明 |
 |------|---------|------|
 | Agent 框架 | LangGraph + LangChain | 多状态、多阶段 Agent |
-| 大模型 | 智谱 GLM (ChatGLM) | OpenAI API 兼容 |
+| 大模型 | Qwen3-Max (通义千问) | OpenAI API 兼容 |
 | 向量数据库 | PostgreSQL + pgvector | RAG 检索 |
 | 关系数据库 | PostgreSQL | 主数据存储 |
 | 缓存 | Redis | 短中期记忆、会话管理 |
@@ -262,7 +258,7 @@ InterviewState:
 
 ## 配置
 
-所有配置统一管理在 `pyproject.toml` 的 `[tool.ai-interview]` 下：
+所有配置统一管理在 `config/config.toml` 的 `[tool.ai-interview]` 下：
 
 ```toml
 [tool.ai-interview.redis]
@@ -272,19 +268,41 @@ db = 0
 password = ""
 
 [tool.ai-interview.database]
-url = "postgresql+asyncpg://postgres:postgres@localhost:5432/ai_interview"
+url = "postgresql+asyncpg://postgres:postgres@localhost:5432/postgres"
 pool_size = 10
 
 [tool.ai-interview.llm]
 api_key = "your_api_key"
-base_url = "https://open.bigmodel.cn/api/paas/v4"
-model = "glm-4"
-embedding_model = "embedding-2"
+base_url = "https://xplt.sdu.edu.cn:4000"
+model = "Ali-dashscope/Qwen3-Max"
+max_tokens = 2048
+temperature = 0.7
+
+[tool.ai-interview.embedding]
+api_key = "your_embedding_key"
+base_url = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+model = "text-embedding-v3"
+
+[tool.ai-interview.vector]
+persist_directory = "./data/vectorstore"
+collection_name = "ai_interview_knowledge"
 
 [tool.ai-interview.server]
 host = "0.0.0.0"
 port = 8000
 reload = true
+workers = 1
+
+[tool.ai-interview.interview]
+default_max_series = 5
+default_error_threshold = 2
+max_followup_depth = 3
+session_ttl = 86400
+
+[tool.ai-interview.rag]
+top_k = 5
+reranker_top_k = 10
+similarity_threshold = 0.7
 ```
 
 ### PostgreSQL 初始化
@@ -405,10 +423,10 @@ curl -X POST "http://localhost:8000/interview/end?session_id=s1"
 ## 后续开发
 
 - [ ] 添加认证机制
-- [ ] 实现知识库构建 API
 - [ ] 添加 WebSocket 支持
 - [ ] 集成 Spring Boot 应用
 - [ ] 多租户支持
+- [ ] 前端界面优化
 
 ## License
 

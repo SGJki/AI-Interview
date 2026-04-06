@@ -27,6 +27,27 @@ from src.agent.state import (
 from src.services.interview_service import InterviewService
 
 
+def _make_service_with_context():
+    """创建带 context 的面试服务（所有需要访问 context 的测试用此方法）"""
+    service = InterviewService(
+        session_id="test-session",
+        resume_id="resume-123",
+        interview_mode=InterviewMode.FREE,
+        feedback_mode=FeedbackMode.REALTIME,
+        error_threshold=2,
+    )
+    service.context = InterviewContext(
+        session_id="test-session",
+        resume_id="resume-123",
+        knowledge_base_id="",
+        resume_context="测试简历内容：熟悉Python编程，参与过多个项目开发。",
+        interview_mode=InterviewMode.FREE,
+        feedback_mode=FeedbackMode.REALTIME,
+        error_threshold=2,
+    )
+    return service
+
+
 class TestFollowupStrategy:
     """Test FollowupStrategy enum"""
 
@@ -48,14 +69,8 @@ class TestFollowupQuestionGeneration:
 
     @pytest.fixture
     def service(self):
-        """创建面试服务实例"""
-        return InterviewService(
-            session_id="test-session",
-            resume_id="resume-123",
-            interview_mode=InterviewMode.FREE,
-            feedback_mode=FeedbackMode.REALTIME,
-            error_threshold=2,
-        )
+        """创建面试服务实例（含 context）"""
+        return _make_service_with_context()
 
     @pytest.fixture
     def mock_state(self):
@@ -67,6 +82,7 @@ class TestFollowupQuestionGeneration:
             feedback_mode=FeedbackMode.REALTIME,
             error_threshold=2,
             max_followup_depth=3,
+            current_question_id="q-test-1-1",
         )
 
     @pytest.fixture
@@ -90,11 +106,20 @@ class TestFollowupQuestionGeneration:
         """测试 _generate_followup_question 返回 Question 对象"""
         service.state = mock_state
 
-        followup = await service._generate_followup_question(
-            current_question=current_question,
-            user_answer="部分答案",
-            deviation_score=0.45,
-        )
+        with patch('src.services.interview_service.InterviewLLMService') as MockLLM:
+            MockLLM.return_value.generate_followup_question = AsyncMock(
+                return_value=Question(
+                    content="追问内容",
+                    question_type=QuestionType.FOLLOWUP,
+                    series=1,
+                    number=2,
+                )
+            )
+            followup = await service._generate_followup_question(
+                current_question=current_question,
+                user_answer="部分答案",
+                deviation_score=0.45,
+            )
 
         assert isinstance(followup, Question)
         assert followup.content is not None
@@ -105,11 +130,20 @@ class TestFollowupQuestionGeneration:
         """测试生成的追问类型是 FOLLOWUP"""
         service.state = mock_state
 
-        followup = await service._generate_followup_question(
-            current_question=current_question,
-            user_answer="部分答案",
-            deviation_score=0.45,
-        )
+        with patch('src.services.interview_service.InterviewLLMService') as MockLLM:
+            MockLLM.return_value.generate_followup_question = AsyncMock(
+                return_value=Question(
+                    content="追问内容",
+                    question_type=QuestionType.FOLLOWUP,
+                    series=1,
+                    number=2,
+                )
+            )
+            followup = await service._generate_followup_question(
+                current_question=current_question,
+                user_answer="部分答案",
+                deviation_score=0.45,
+            )
 
         assert followup.question_type == QuestionType.FOLLOWUP
 
@@ -118,11 +152,21 @@ class TestFollowupQuestionGeneration:
         """测试追问包含父问题 ID"""
         service.state = mock_state
 
-        followup = await service._generate_followup_question(
-            current_question=current_question,
-            user_answer="部分答案",
-            deviation_score=0.45,
-        )
+        with patch('src.services.interview_service.InterviewLLMService') as MockLLM:
+            MockLLM.return_value.generate_followup_question = AsyncMock(
+                return_value=Question(
+                    content="追问内容",
+                    question_type=QuestionType.FOLLOWUP,
+                    series=1,
+                    number=2,
+                    parent_question_id="q-test-1-1",
+                )
+            )
+            followup = await service._generate_followup_question(
+                current_question=current_question,
+                user_answer="部分答案",
+                deviation_score=0.45,
+            )
 
         assert followup.parent_question_id is not None
 
@@ -132,11 +176,20 @@ class TestFollowupQuestionGeneration:
         service.state = mock_state
         initial_depth = mock_state.followup_depth
 
-        followup = await service._generate_followup_question(
-            current_question=current_question,
-            user_answer="部分答案",
-            deviation_score=0.45,
-        )
+        with patch('src.services.interview_service.InterviewLLMService') as MockLLM:
+            MockLLM.return_value.generate_followup_question = AsyncMock(
+                return_value=Question(
+                    content="追问内容",
+                    question_type=QuestionType.FOLLOWUP,
+                    series=1,
+                    number=2,
+                )
+            )
+            followup = await service._generate_followup_question(
+                current_question=current_question,
+                user_answer="部分答案",
+                deviation_score=0.45,
+            )
 
         assert service.state.followup_depth == initial_depth + 1
 
@@ -254,14 +307,8 @@ class TestFollowupStrategySelection:
 
     @pytest.fixture
     def service(self):
-        """创建面试服务实例"""
-        return InterviewService(
-            session_id="test-session",
-            resume_id="resume-123",
-            interview_mode=InterviewMode.FREE,
-            feedback_mode=FeedbackMode.REALTIME,
-            error_threshold=2,
-        )
+        """创建面试服务实例（含 context）"""
+        return _make_service_with_context()
 
     @pytest.fixture
     def mock_state(self):
@@ -287,11 +334,20 @@ class TestFollowupStrategySelection:
             )
         service.state = mock_state
 
-        followup = await service._generate_followup_question(
-            current_question=current_question,
-            user_answer="部分正确",
-            deviation_score=0.45,
-        )
+        with patch('src.services.interview_service.InterviewLLMService') as MockLLM:
+            MockLLM.return_value.generate_followup_question = AsyncMock(
+                return_value=Question(
+                    content="追问：能否详细说说？",
+                    question_type=QuestionType.FOLLOWUP,
+                    series=1,
+                    number=2,
+                )
+            )
+            followup = await service._generate_followup_question(
+                current_question=current_question,
+                user_answer="部分正确",
+                deviation_score=0.45,
+            )
 
         # 中等偏差应该生成追问
         assert followup is not None
@@ -337,14 +393,8 @@ class TestFollowupChainManagement:
 
     @pytest.fixture
     def service(self):
-        """创建面试服务实例"""
-        return InterviewService(
-            session_id="test-session",
-            resume_id="resume-123",
-            interview_mode=InterviewMode.FREE,
-            feedback_mode=FeedbackMode.REALTIME,
-            error_threshold=2,
-        )
+        """创建面试服务实例（含 context）"""
+        return _make_service_with_context()
 
     @pytest.fixture
     def mock_state_with_chain(self):
@@ -357,15 +407,14 @@ class TestFollowupChainManagement:
             error_threshold=2,
             max_followup_depth=3,
             followup_depth=1,
-            followup_chain=["q-1", "q-2"],
+            followup_chain=["q-1"],
         )
 
     def test_followup_chain_tracked_in_state(self, mock_state_with_chain):
         """测试状态中追踪追问链"""
         assert mock_state_with_chain.followup_chain is not None
-        assert len(mock_state_with_chain.followup_chain) == 2
+        assert len(mock_state_with_chain.followup_chain) == 1
         assert "q-1" in mock_state_with_chain.followup_chain
-        assert "q-2" in mock_state_with_chain.followup_chain
 
     def test_followup_depth_tracked_in_state(self, mock_state_with_chain):
         """测试状态中追踪追问深度"""
@@ -383,8 +432,6 @@ class TestFollowupChainManagement:
     @pytest.mark.asyncio
     async def test_followup_chain_updated_after_followup(self, service):
         """测试生成追问后更新追问链"""
-        from dataclasses import replace
-
         initial_state = InterviewState(
             session_id="test-session",
             resume_id="resume-123",
@@ -403,11 +450,20 @@ class TestFollowupChainManagement:
             number=1,
         )
 
-        followup = await service._generate_followup_question(
-            current_question=current_question,
-            user_answer="部分答案",
-            deviation_score=0.45,
-        )
+        with patch('src.services.interview_service.InterviewLLMService') as MockLLM:
+            MockLLM.return_value.generate_followup_question = AsyncMock(
+                return_value=Question(
+                    content="追问内容",
+                    question_type=QuestionType.FOLLOWUP,
+                    series=1,
+                    number=2,
+                )
+            )
+            followup = await service._generate_followup_question(
+                current_question=current_question,
+                user_answer="部分答案",
+                deviation_score=0.45,
+            )
 
         # 追问链应该被更新
         assert len(service.state.followup_chain) == 2
@@ -417,24 +473,9 @@ class TestThresholdReminder:
     """Test threshold-based reminder"""
 
     @pytest.fixture
-    def service_with_context(self):
-        """创建面试服务实例及上下文"""
-        service = InterviewService(
-            session_id="test-session",
-            resume_id="resume-123",
-            interview_mode=InterviewMode.FREE,
-            feedback_mode=FeedbackMode.REALTIME,
-            error_threshold=2,
-        )
-        service.context = InterviewContext(
-            session_id="test-session",
-            resume_id="resume-123",
-            knowledge_base_id="kb-1",
-            interview_mode=InterviewMode.FREE,
-            feedback_mode=FeedbackMode.REALTIME,
-            error_threshold=2,
-        )
-        return service
+    def service(self):
+        """创建面试服务实例（含 context）"""
+        return _make_service_with_context()
 
     @pytest.fixture
     def mock_state_at_threshold(self):
@@ -446,25 +487,39 @@ class TestThresholdReminder:
             feedback_mode=FeedbackMode.REALTIME,
             error_threshold=2,
             error_count=2,  # 达到阈值
+            current_question=Question(
+                content="请介绍你的项目经验",
+                question_type=QuestionType.INITIAL,
+                series=1,
+                number=1,
+            ),
         )
 
     @pytest.mark.asyncio
     async def test_reminder_triggered_when_error_threshold_reached(
-        self, service_with_context, mock_state_at_threshold
+        self, service, mock_state_at_threshold
     ):
         """测试连续答错达到阈值时触发提醒"""
         from src.agent.state import FeedbackType
 
-        service_with_context.state = mock_state_at_threshold
+        service.state = mock_state_at_threshold
 
-        # 模拟评估返回错误
-        with patch.object(service_with_context, '_evaluate_answer', return_value={
+        # Mock all dependencies to avoid Redis and LLM calls
+        with patch.object(service, '_evaluate_answer', return_value={
             'deviation_score': 0.2,
             'is_correct': False,
         }), \
-        patch.object(service_with_context, '_generate_next_question', return_value=None), \
-        patch.object(service_with_context, '_should_continue', return_value=False):
-            response = await service_with_context.submit_answer(
+        patch.object(service, '_generate_feedback', new_callable=AsyncMock, return_value=Feedback(
+            question_id="q-1",
+            content="初始反馈",
+            is_correct=False,
+            guidance=None,
+            feedback_type=FeedbackType.COMMENT,
+        )), \
+        patch.object(service, '_generate_next_question', return_value=None), \
+        patch.object(service, '_should_continue', return_value=False), \
+        patch('src.services.interview_service.save_to_session_memory', new_callable=AsyncMock):
+            response = await service.submit_answer(
                 user_answer="错误答案",
                 question_id="q-1",
             )
@@ -475,20 +530,28 @@ class TestThresholdReminder:
 
     @pytest.mark.asyncio
     async def test_reminder_contains_knowledge_point_hint(
-        self, service_with_context, mock_state_at_threshold
+        self, service, mock_state_at_threshold
     ):
         """测试提醒包含知识点提示"""
         from src.agent.state import FeedbackType
 
-        service_with_context.state = mock_state_at_threshold
+        service.state = mock_state_at_threshold
 
-        with patch.object(service_with_context, '_evaluate_answer', return_value={
+        with patch.object(service, '_evaluate_answer', return_value={
             'deviation_score': 0.2,
             'is_correct': False,
         }), \
-        patch.object(service_with_context, '_generate_next_question', return_value=None), \
-        patch.object(service_with_context, '_should_continue', return_value=False):
-            response = await service_with_context.submit_answer(
+        patch.object(service, '_generate_feedback', new_callable=AsyncMock, return_value=Feedback(
+            question_id="q-1",
+            content="初始反馈",
+            is_correct=False,
+            guidance=None,
+            feedback_type=FeedbackType.COMMENT,
+        )), \
+        patch.object(service, '_generate_next_question', return_value=None), \
+        patch.object(service, '_should_continue', return_value=False), \
+        patch('src.services.interview_service.save_to_session_memory', new_callable=AsyncMock):
+            response = await service.submit_answer(
                 user_answer="错误答案",
                 question_id="q-1",
             )
@@ -571,14 +634,8 @@ class TestFollowupQuestionContent:
 
     @pytest.fixture
     def service(self):
-        """创建面试服务实例"""
-        return InterviewService(
-            session_id="test-session",
-            resume_id="resume-123",
-            interview_mode=InterviewMode.FREE,
-            feedback_mode=FeedbackMode.REALTIME,
-            error_threshold=2,
-        )
+        """创建面试服务实例（含 context）"""
+        return _make_service_with_context()
 
     @pytest.fixture
     def mock_state(self):
@@ -604,11 +661,20 @@ class TestFollowupQuestionContent:
             number=1,
         )
 
-        followup = await service._generate_followup_question(
-            current_question=current_question,
-            user_answer="我做过微服务项目",
-            deviation_score=0.45,
-        )
+        with patch('src.services.interview_service.InterviewLLMService') as MockLLM:
+            MockLLM.return_value.generate_followup_question = AsyncMock(
+                return_value=Question(
+                    content="能否详细说说你的微服务实践？",
+                    question_type=QuestionType.FOLLOWUP,
+                    series=1,
+                    number=2,
+                )
+            )
+            followup = await service._generate_followup_question(
+                current_question=current_question,
+                user_answer="我做过微服务项目",
+                deviation_score=0.45,
+            )
 
         # 追问应该是疑问句
         assert "?" in followup.content or "能否" in followup.content or "详细" in followup.content
@@ -625,11 +691,20 @@ class TestFollowupQuestionContent:
             number=1,
         )
 
-        followup = await service._generate_followup_question(
-            current_question=current_question,
-            user_answer="我用过Spring Cloud",
-            deviation_score=0.45,
-        )
+        with patch('src.services.interview_service.InterviewLLMService') as MockLLM:
+            MockLLM.return_value.generate_followup_question = AsyncMock(
+                return_value=Question(
+                    content="你提到的Spring Cloud具体是怎么用的？",
+                    question_type=QuestionType.FOLLOWUP,
+                    series=1,
+                    number=2,
+                )
+            )
+            followup = await service._generate_followup_question(
+                current_question=current_question,
+                user_answer="我用过Spring Cloud",
+                deviation_score=0.45,
+            )
 
         # 追问应该与原问题主题相关（微服务）
         assert followup.content is not None

@@ -1104,7 +1104,7 @@ class InterviewService:
             question_type=QuestionType.FOLLOWUP,
             series=current_question.series,
             number=current_question.number + self.state.followup_depth,
-            parent_question_id=current_question.question_id if hasattr(current_question, 'question_id') else None,
+            parent_question_id=self.state.current_question_id,
         )
 
 

@@ -97,8 +97,16 @@ class TestPregenerateNextSeriesQuestion:
         """Test that pregenerated question includes series info"""
         service.state = replace(service.state, current_series=2)
 
-        with patch('src.services.interview_service.cache_next_series_question') as mock_cache:
-            mock_cache.return_value = AsyncMock()
+        with patch('src.services.interview_service.InterviewLLMService') as MockLLM, \
+             patch('src.services.interview_service.cache_next_series_question') as mock_cache:
+            MockLLM.return_value.generate_question = AsyncMock(
+                return_value=Question(
+                    content="请介绍一下系列3的项目经验？",
+                    question_type=QuestionType.INITIAL,
+                    series=3,
+                    number=1,
+                )
+            )
             await service._pregenerate_next_series_question()
             call_args = mock_cache.call_args
             question_content = call_args[0][2]  # question_content
@@ -221,28 +229,41 @@ class TestPregenerateWithSubmitAnswer:
             error_threshold=2,
         )
 
-        with patch('src.services.interview_service.get_cached_next_question', new_callable=AsyncMock) as mock_get_cached:
-            with patch('src.services.interview_service.cache_next_series_question', new_callable=AsyncMock) as mock_cache:
-                with patch.object(service, '_pregenerate_next_series_question', new_callable=AsyncMock) as mock_pregenerate:
-                    mock_get_cached.return_value = None
-                    # Set up so that _is_series_complete returns True
-                    service.state = replace(
-                        service.state,
-                        answers={
-                            "q-test-session-1-1": Answer(
-                                question_id="q-test-session-1-1",
-                                content="Answer",
-                                deviation_score=0.8
-                            )
-                        }
+        with patch('src.services.interview_service.InterviewLLMService') as MockLLM, \
+             patch('src.services.interview_service.get_cached_next_question', new_callable=AsyncMock) as mock_get_cached, \
+             patch('src.services.interview_service.cache_next_series_question', new_callable=AsyncMock) as mock_cache, \
+             patch.object(service, '_pregenerate_next_series_question', new_callable=AsyncMock) as mock_pregenerate, \
+             patch('src.services.interview_service.save_to_session_memory', new_callable=AsyncMock):
+            MockLLM.return_value.generate_question = AsyncMock(
+                return_value=Question(
+                    content="[模拟问题]",
+                    question_type=QuestionType.INITIAL,
+                    series=2,
+                    number=1,
+                )
+            )
+            MockLLM.return_value.evaluate_answer = AsyncMock(
+                return_value={"deviation_score": 0.8, "is_correct": True}
+            )
+            mock_get_cached.return_value = None
+            # Set up so that _is_series_complete returns True
+            service.state = replace(
+                service.state,
+                answers={
+                    "q-test-session-1-1": Answer(
+                        question_id="q-test-session-1-1",
+                        content="Answer",
+                        deviation_score=0.8
                     )
+                }
+            )
 
-                    # submit_answer should trigger pregeneration when series completes
-                    await service.submit_answer("My answer", "q-test-session-1-1")
+            # submit_answer should trigger pregeneration when series completes
+            await service.submit_answer("My answer", "q-test-session-1-1")
 
-                    # If series switch happened, pregeneration should be called
-                    if mock_pregenerate.called:
-                        mock_pregenerate.assert_called()
+            # If series switch happened, pregeneration should be called
+            if mock_pregenerate.called:
+                mock_pregenerate.assert_called()
 
 
 class TestCachedQuestionUsage:
@@ -308,7 +329,16 @@ class TestCachedQuestionUsage:
             error_threshold=2,
         )
 
-        with patch('src.services.interview_service.get_cached_next_question', new_callable=AsyncMock) as mock_get_cached:
+        with patch('src.services.interview_service.InterviewLLMService') as MockLLM, \
+             patch('src.services.interview_service.get_cached_next_question', new_callable=AsyncMock) as mock_get_cached:
+            MockLLM.return_value.generate_question = AsyncMock(
+                return_value=Question(
+                    content="[模拟问题] 请介绍一下你的项目经验？",
+                    question_type=QuestionType.INITIAL,
+                    series=1,
+                    number=1,
+                )
+            )
             mock_get_cached.return_value = None  # No cached question
 
             question = await service._generate_next_question()
@@ -345,7 +375,16 @@ class TestPregenerationTopic:
         )
         service.state = replace(service.state, current_series=1)
 
-        with patch('src.services.interview_service.cache_next_series_question', new_callable=AsyncMock) as mock_cache:
+        with patch('src.services.interview_service.InterviewLLMService') as MockLLM, \
+             patch('src.services.interview_service.cache_next_series_question', new_callable=AsyncMock) as mock_cache:
+            MockLLM.return_value.generate_question = AsyncMock(
+                return_value=Question(
+                    content="请介绍一下系列2的项目经验？",
+                    question_type=QuestionType.INITIAL,
+                    series=2,
+                    number=1,
+                )
+            )
             await service._pregenerate_next_series_question()
             call_args = mock_cache.call_args
             question_content = call_args[0][2]

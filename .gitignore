@@ -9,3 +9,5 @@ wheels/
 # Virtual environments
 .venv
 .idea
+config/config.toml
+data/vectorstore/3f69749f-9143-4f18-b513-6d50f6fc22ad
