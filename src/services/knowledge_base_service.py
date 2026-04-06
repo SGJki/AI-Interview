@@ -48,7 +48,7 @@ class KnowledgeBaseService:
             # 使用 LLM 提取简历中的结构化信息
             prompt = RESUME_EXTRACTION_PROMPT.format(resume_content=resume_content)
             result_text = await invoke_llm(
-                system_prompt="你是一个专业的简历分析专家，提取关键信息。",
+                system_prompt="",
                 user_prompt=prompt,
                 temperature=0.3,
             )
@@ -153,7 +153,7 @@ class KnowledgeBaseService:
             try:
                 prompt = SKILL_QUESTION_PROMPT.format(skill_point=skill)
                 result_text = await invoke_llm(
-                    system_prompt="你是一个专业的面试官，生成高质量的面试问题。",
+                    system_prompt="",
                     user_prompt=prompt,
                     temperature=0.7,
                 )
