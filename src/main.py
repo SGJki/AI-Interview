@@ -9,6 +9,7 @@ AI Interview Agent - FastAPI Server
 
 import logging
 import sys
+from contextlib import asynccontextmanager
 
 # 配置 logging - 输出到 stdout
 logging.basicConfig(
@@ -26,6 +27,43 @@ from src.api.routers import interview_router, training_router, knowledge_router
 
 
 # =============================================================================
+# Lifespan - Startup/Shutdown Events
+# =============================================================================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan - handles startup and shutdown"""
+    # Startup
+    logger = logging.getLogger(__name__)
+    logger.info("Starting AI Interview Agent...")
+
+    # Initialize database tables
+    try:
+        from src.db.database import get_database_manager
+        from src.db.models import Base
+
+        db = get_database_manager()
+        logger.info("Creating database tables if not exist...")
+        async with db.engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        logger.info("Database tables ready")
+    except Exception as e:
+        logger.error(f"Database initialization failed: {e}")
+        logger.warning("Application will continue but database features may not work")
+
+    yield  # Application runs here
+
+    # Shutdown
+    logger.info("Shutting down AI Interview Agent...")
+    try:
+        from src.db.database import close_database_manager
+        await close_database_manager()
+        logger.info("Database connections closed")
+    except Exception as e:
+        logger.error(f"Error during shutdown: {e}")
+
+
+# =============================================================================
 # FastAPI Application
 # =============================================================================
 
@@ -33,6 +71,7 @@ app = FastAPI(
     title="AI Interview Agent",
     description="AI 面试助手 - 支持实时点评和流式输出",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 # =============================================================================

@@ -84,7 +84,9 @@ function setupInterviewListeners() {
 }
 
 async function startInterview() {
-    const sessionId = document.getElementById('interview-session-id').value || crypto.randomUUID();
+    // 始终使用 crypto.randomUUID() 生成有效的 UUID
+    // 用户输入的 session_id 仅用于显示，不作为实际 ID
+    const sessionId = crypto.randomUUID();
     const resumeContent = document.getElementById('interview-resume-content').value.trim();
     const mode = document.getElementById('interview-mode').value;
     const feedbackMode = document.getElementById('interview-feedback-mode').value;

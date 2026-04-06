@@ -4,6 +4,8 @@ Interview Service for AI Interview Agent
 面试服务：整合 Agent、工具和状态管理
 """
 
+import random
+import time
 from typing import Optional
 from dataclasses import dataclass, replace
 
@@ -40,10 +42,10 @@ from src.tools.rag_tools import (
     retrieve_by_skill_point,
 )
 from src.services.llm_service import InterviewLLMService
-from src.services.embedding_service import compute_similarity
+from src.services.embedding_service import compute_similarity, compute_similarities
 
-
-# =============================================================================
+# Constants
+DEFAULT_QUESTION_DEDUP_THRESHOLD = 0.85  # 相似度阈值，超过此值认为问题重复# =============================================================================
 # Data Classes
 # =============================================================================
 
@@ -400,7 +402,7 @@ class InterviewService:
     async def _load_responsibilities(self):
         """加载职责列表
 
-        从知识库加载简历中的个人职责，用于针对性提问
+        从 Chroma 向量库加载简历中的个人职责，用于针对性提问
         """
         import logging
         logger = logging.getLogger(__name__)
@@ -411,29 +413,33 @@ class InterviewService:
         logger.info(f"[_load_responsibilities] resume_id={self.resume_id}")
 
         try:
-            # 从向量库检索职责类型的内容
-            docs = await retrieve_knowledge(
-                query="个人职责 工作内容 项目责任",
-                top_k=50,
-                filter_metadata={
-                    "resume_id": self.resume_id,
-                    "type": "responsibility"
-                }
+            # 从 Chroma 向量库获取职责列表
+            from src.services.responsibility_service import ResponsibilityStorageService
+            responsibilities = await ResponsibilityStorageService.get_responsibilities_by_resume_from_chroma(
+                resume_id=self.resume_id,
+                top_k=50
             )
-            logger.info(f"[_load_responsibilities] retrieved {len(docs)} responsibility docs")
-
-            responsibilities = []
-            seen = set()
-            for doc in docs:
-                content = doc.page_content.strip()
-                # 去重
-                if content and content not in seen:
-                    seen.add(content)
-                    responsibilities.append(content)
+            logger.info(f"[_load_responsibilities] loaded {len(responsibilities)} responsibilities from Chroma")
 
             # 更新 context
             self.context.responsibilities = tuple(responsibilities)
-            logger.info(f"[_load_responsibilities] loaded {len(responsibilities)} unique responsibilities")
+            logger.info(f"[_load_responsibilities] set responsibilities tuple with {len(responsibilities)} items")
+
+            # 创建系列-职责的随机映射（以时间为种子）
+            if responsibilities:
+                random.seed(int(time.time()))
+                indices = list(range(len(responsibilities)))
+                random.shuffle(indices)
+
+                # 获取最大系列数
+                max_series = getattr(self, 'max_series', 5) or 5
+                series_map = {}
+                for i in range(max_series):
+                    # 职责数量少于系列数时用 modulo 轮换
+                    series_map[i + 1] = indices[i % len(indices)]
+
+                self.context.series_responsibility_map = series_map
+                logger.info(f"[_load_responsibilities] created shuffled series_responsibility_map: {series_map}")
 
         except Exception as e:
             logger.error(f"[_load_responsibilities] error: {e}")
@@ -451,9 +457,186 @@ class InterviewService:
             return ""
 
         responsibilities = self.context.responsibilities
-        # 使用 modulo 轮换职责（如果系列数超过职责数量）
+
+        # 优先使用预计算的 series_responsibility_map
+        if hasattr(self.context, 'series_responsibility_map') and self.context.series_responsibility_map:
+            resp_idx = self.context.series_responsibility_map.get(series_num)
+            if resp_idx is not None and resp_idx < len(responsibilities):
+                return responsibilities[resp_idx]
+
+        # 回退：使用 modulo 轮换职责
         resp_idx = (series_num - 1) % len(responsibilities)
         return responsibilities[resp_idx]
+
+    def _is_valid_uuid(self, value: str) -> bool:
+        """检查字符串是否为有效的 UUID 格式"""
+        from uuid import UUID
+        if not value:
+            return False
+        try:
+            UUID(value)
+            return True
+        except ValueError:
+            return False
+
+    async def _check_question_duplication(
+        self,
+        question_content: str,
+        threshold: float = DEFAULT_QUESTION_DEDUP_THRESHOLD,
+    ) -> tuple[bool, Optional[str]]:
+        """
+        检查问题是否与历史问题重复（语义相似度检测）
+
+        Args:
+            question_content: 待检查的问题内容
+            threshold: 相似度阈值，超过此值认为重复
+
+        Returns:
+            (is_duplicate, similar_question_id): 是否重复及相似的问题ID
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        # 验证 resume_id 是否为有效的 UUID 格式
+        if not self._is_valid_uuid(self.resume_id):
+            logger.warning(f"[_check_question_duplication] resume_id '{self.resume_id}' is not a valid UUID, skipping duplicate check")
+            return False, None
+
+        try:
+            from src.db.database import get_db_session
+            from src.dao.project_dao import ProjectDAO
+            from src.db.models import KnowledgeBase
+            from sqlalchemy import select, and_
+
+            async for session in get_db_session():
+                # 获取当前简历关联的project_id
+                project_dao = ProjectDAO(session)
+                projects = await project_dao.find_by_resume_id(self.resume_id)
+                if not projects:
+                    return False, None
+
+                project_id = projects[0].id
+
+                # 查找该简历历史问题（跨session）
+                result = await session.execute(
+                    select(KnowledgeBase)
+                    .where(
+                        and_(
+                            KnowledgeBase.project_id == project_id,
+                            KnowledgeBase.type == "question",
+                            KnowledgeBase.question_id.isnot(None)
+                        )
+                    )
+                )
+                existing_questions = list(result.scalars().all())
+
+                if not existing_questions:
+                    return False, None
+
+                # 收集所有历史问题内容和ID的映射
+                text_to_qid = {}
+                text_list = []
+                for q in existing_questions:
+                    if q.content:
+                        text_list.append(q.content)
+                        text_to_qid[q.content] = q.question_id
+
+                if not text_list:
+                    return False, None
+
+                # 批量计算相似度（一次embedding调用）
+                similarities = await compute_similarities(question_content, text_list)
+
+                # 遍历相似度结果，找到最高的
+                max_similarity = 0.0
+                most_similar_id = None
+                for text, similarity in similarities:
+                    if similarity > max_similarity:
+                        max_similarity = similarity
+                        most_similar_id = text_to_qid.get(text)
+
+                    if similarity >= threshold:
+                        logger.info(f"[_check_question_duplication] Question similar to {most_similar_id}, similarity={similarity}")
+                        return True, most_similar_id
+
+                logger.info(f"[_check_question_duplication] max_similarity={max_similarity}, threshold={threshold}")
+                break
+
+        except Exception as e:
+            # 检查是否是表不存在的错误
+            error_str = str(e).lower()
+            if "does not exist" in error_str or "undefinedtable" in error_str:
+                logger.warning(f"[_check_question_duplication] Database tables not initialized. Run scripts/init_db.py to create tables.")
+            else:
+                logger.error(f"[_check_question_duplication] error: {e}")
+            return False, None
+
+    async def _save_question_to_kb(
+        self,
+        question_id: str,
+        content: str,
+        responsibility_id: Optional[int] = None,
+        responsibility_text: Optional[str] = None,
+    ) -> bool:
+        """
+        保存生成的问题到知识库（用于去重追踪）
+
+        Args:
+            question_id: 问题ID
+            content: 问题内容
+            responsibility_id: 职责索引
+            responsibility_text: 职责文本
+
+        Returns:
+            是否保存成功
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        # 验证 resume_id 是否为有效的 UUID 格式
+        if not self._is_valid_uuid(self.resume_id):
+            logger.warning(f"[_save_question_to_kb] resume_id '{self.resume_id}' is not a valid UUID, skipping save")
+            return False
+
+        try:
+            from src.db.database import get_db_session
+            from src.dao.knowledge_base_dao import KnowledgeBaseDAO
+            from src.dao.project_dao import ProjectDAO
+
+            async for session in get_db_session():
+                dao = KnowledgeBaseDAO(session)
+
+                # 获取project_id
+                project_dao = ProjectDAO(session)
+                projects = await project_dao.find_by_resume_id(self.resume_id)
+                if not projects:
+                    logger.warning(f"[_save_question_to_kb] No project found for resume {self.resume_id}")
+                    return False
+
+                project_id = projects[0].id
+
+                # 保存问题
+                await dao.save_question(
+                    project_id=project_id,
+                    question_id=question_id,
+                    session_id=self.session_id,
+                    content=content,
+                    responsibility_id=responsibility_id,
+                    responsibility_text=responsibility_text,
+                )
+
+                logger.info(f"[_save_question_to_kb] Saved question {question_id}")
+                break
+            return True
+
+        except Exception as e:
+            # 检查是否是表不存在的错误
+            error_str = str(e).lower()
+            if "does not exist" in error_str or "undefinedtable" in error_str:
+                logger.warning(f"[_save_question_to_kb] Database tables not initialized. Run scripts/init_db.py to create tables.")
+            else:
+                logger.error(f"[_save_question_to_kb] error: {e}")
+            return False
 
     async def _generate_next_question(self) -> Question:
         """
@@ -554,7 +737,7 @@ class InterviewService:
         if responsibility_context:
             resume_info = f"{resume_info}\n\n【当前面试重点】{responsibility_context}"
 
-        logger.info(f"[_generate_next_question_stream] resume_info preview: {resume_info[:100]}...")
+        logger.info(f"[_generate_next_question_stream] responsibility_context preview: {responsibility_context[:100]}...")
         topic_area = self._get_next_topic()
         knowledge_context = self.context.knowledge_context or ""
 
@@ -578,32 +761,64 @@ class InterviewService:
         }
         logger.info(f"[_generate_next_question_stream] sent question_start event")
 
-        # 流式生成问题，收集完整内容
+        # 流式生成问题，同时缓冲完整内容用于去重检查
         full_content = ""
         token_count = 0
-        try:
-            async for token in llm_service.generate_question_stream(
-                series_num=self.state.current_series,
-                question_num=question_number,
-                interview_mode=self.interview_mode.value,
-                topic_area=topic_area,
-                knowledge_context=knowledge_context,
-            ):
-                token_count += 1
-                full_content += token
-                logger.debug(f"[_generate_next_question_stream] token {token_count}: {token[:20]}...")
+        max_retries = 3
+        dedup_threshold = DEFAULT_QUESTION_DEDUP_THRESHOLD
+
+        for retry in range(max_retries):
+            try:
+                async for token in llm_service.generate_question_stream(
+                    series_num=self.state.current_series,
+                    question_num=question_number,
+                    interview_mode=self.interview_mode.value,
+                    topic_area=topic_area,
+                    knowledge_context=knowledge_context,
+                ):
+                    token_count += 1
+                    full_content += token
+                    # 流式发送每个 token（与 followup 版本保持一致）
+                    yield {
+                        "type": "token",
+                        "data": {"content": token}
+                    }
+                break  # 生成成功，跳出重试循环
+            except Exception as e:
+                logger.error(f"[_generate_next_question_stream] error: {e}")
+                if retry == max_retries - 1:
+                    # 所有重试都失败了，使用 fallback 内容
+                    full_content = "请介绍一下你最近做的项目，以及在其中承担的角色？"
+                    # 将 fallback 内容作为 token 发送
+                    for char in full_content:
+                        yield {
+                            "type": "token",
+                            "data": {"content": char}
+                        }
+                    # 跳出重试循环，跳过后续去重检查
+                    break
+                else:
+                    full_content = ""  # 重试时清空
+                    continue
+
+                if retry > 0:
+                    logger.info(f"[_generate_next_question_stream] retry {retry} after checking duplication")
+
+        logger.info(f"[_generate_next_question_stream] generated content len={len(full_content)}, checking duplication...")
+
+        # 检查问题是否重复（仅对初始问题检查）
+        if self.state.followup_depth == 0:
+            is_dup, similar_id = await self._check_question_duplication(full_content, dedup_threshold)
+            if is_dup:
+                logger.warning(f"[_generate_next_question_stream] Question duplicated with {similar_id}, requesting regeneration")
+                # 问题重复，发送重试信号
                 yield {
-                    "type": "token",
-                    "data": {"content": token}
+                    "type": "retry",
+                    "data": {"reason": "question_duplicated", "similar_id": similar_id}
                 }
-            logger.info(f"[_generate_next_question_stream] streaming complete, total_tokens={token_count}, full_content len={len(full_content)}")
-        except Exception as e:
-            logger.error(f"[_generate_next_question_stream] error: {e}")
-            full_content = "请介绍一下你最近做的项目，以及在其中承担的角色？"
-            yield {
-                "type": "token",
-                "data": {"content": full_content}
-            }
+                return
+
+        logger.info(f"[_generate_next_question_stream] streaming complete, total_tokens={token_count}, full_content len={len(full_content)}")
 
         # 创建 Question 对象并更新 state
         question = Question(
@@ -622,6 +837,17 @@ class InterviewService:
         # 保存问题内容到 context 以便后续 submit_answer 使用
         self.context.question_contents[question_id] = full_content
         logger.info(f"[_generate_next_question_stream] state updated with question, content len={len(full_content)}")
+
+        # 保存到知识库（用于后续去重，仅初始问题）
+        if self.state.followup_depth == 0:
+            responsibility_id = self.context.series_responsibility_map.get(self.state.current_series)
+            responsibility_text = self._get_responsibility_for_series(self.state.current_series)
+            await self._save_question_to_kb(
+                question_id=question_id,
+                content=full_content,
+                responsibility_id=responsibility_id,
+                responsibility_text=responsibility_text,
+            )
 
         # 发送完成信号
         yield {
@@ -1153,15 +1379,16 @@ class InterviewService:
                 new_followup_chain = [followup_question_id]
 
         # 更新状态
+        new_followup_depth = self.state.followup_depth + 1
         self.state = replace(
             self.state,
-            followup_depth=self.state.followup_depth + 1,
+            followup_depth=new_followup_depth,
             followup_chain=new_followup_chain,
         )
 
         # 更新 context
         if self.context:
-            self.context.followup_depth = self.state.followup_depth
+            self.context.followup_depth = new_followup_depth
             self.context.followup_chain = new_followup_chain
             # 保存追问内容以便后续 submit_answer 使用
             self.context.question_contents[followup_question_id] = followup_content
@@ -1276,19 +1503,21 @@ class InterviewService:
             number=question_number,
             parent_question_id=self.state.current_question_id,
         )
+        # 注意：replace 返回新对象，需要捕获新的 followup_depth
+        new_followup_depth = self.state.followup_depth + 1
         self.state = replace(
             self.state,
             current_question=question,
             current_question_id=followup_question_id,
-            followup_depth=self.state.followup_depth + 1,
+            followup_depth=new_followup_depth,
             followup_chain=new_followup_chain,
         )
         self.context.current_question_id = followup_question_id
-        self.context.followup_depth = self.state.followup_depth
+        self.context.followup_depth = new_followup_depth
         self.context.followup_chain = new_followup_chain
         # 保存问题内容到 context 以便后续 submit_answer 使用
         self.context.question_contents[followup_question_id] = full_content
-        logger.info(f"[_generate_followup_question_stream] state updated with followup question, content len={len(full_content)}")
+        logger.info(f"[_generate_followup_question_stream] state updated with followup question, followup_depth={new_followup_depth}")
 
         # 发送完成信号
         yield {

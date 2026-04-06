@@ -198,3 +198,59 @@ class KnowledgeBaseDAO:
             .order_by(KnowledgeBase.responsibility_id)
         )
         return list(result.scalars().all())
+
+    async def find_questions_by_session(self, session_id: str) -> list[KnowledgeBase]:
+        """
+        Find all question-type KB entries for a session (for question deduplication).
+
+        Args:
+            session_id: Session ID to filter by
+
+        Returns:
+            List of question knowledge base entries for the session
+        """
+        result = await self.session.execute(
+            select(KnowledgeBase)
+            .where(
+                and_(
+                    KnowledgeBase.session_id == session_id,
+                    KnowledgeBase.question_id.isnot(None)
+                )
+            )
+            .order_by(KnowledgeBase.created_at)
+        )
+        return list(result.scalars().all())
+
+    async def save_question(
+        self,
+        project_id: UUID,
+        question_id: str,
+        session_id: str,
+        content: str,
+        responsibility_id: Optional[int] = None,
+        responsibility_text: Optional[str] = None,
+    ) -> KnowledgeBase:
+        """
+        Save a generated question to the knowledge base (for deduplication tracking).
+
+        Args:
+            project_id: Project UUID
+            question_id: Unique question identifier
+            session_id: Session ID
+            content: Question text content
+            responsibility_id: Optional responsibility index
+            responsibility_text: Optional responsibility text
+
+        Returns:
+            Saved knowledge base entry
+        """
+        kb = KnowledgeBase(
+            project_id=project_id,
+            type="question",
+            question_id=question_id,
+            session_id=session_id,
+            content=content,
+            responsibility_id=responsibility_id,
+            responsibility_text=responsibility_text,
+        )
+        return await self.save(kb)

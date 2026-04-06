@@ -5,7 +5,10 @@ Knowledge Base Service for AI Interview Agent
 """
 
 import json
+import logging
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from langchain_core.documents import Document
 from src.tools.rag_tools import (
@@ -103,6 +106,31 @@ class KnowledgeBaseService:
                 )
                 documents.append(exp_doc)
 
+            # 4. 添加职责文档 (responsibilities) - 这是面试针对性提问的关键
+            responsibilities_count = 0
+            for project in projects:
+                project_name = project.get('name', '')
+                responsibilities = project.get('responsibilities', [])
+                # 调试日志：查看 LLM 提取的项目数据
+                if responsibilities:
+                    logger.debug(f"[build_from_resume] project='{project_name}', responsibilities count={len(responsibilities)}")
+                    for idx, resp in enumerate(responsibilities):
+                        logger.debug(f"[build_from_resume]   resp_{idx}: {resp[:50]}..." if len(resp) > 50 else f"[build_from_resume]   resp_{idx}: {resp}")
+                for resp_idx, resp_text in enumerate(responsibilities):
+                    if resp_text and resp_text.strip():
+                        resp_doc = Document(
+                            page_content=resp_text.strip(),
+                            metadata={
+                                "type": "responsibility",
+                                "resume_id": resume_id,
+                                "responsibility_id": resp_idx,
+                                "project_name": project_name,
+                            }
+                        )
+                        documents.append(resp_doc)
+                        responsibilities_count += 1
+            logger.debug(f"[build_from_resume] Total responsibilities to save: {responsibilities_count}")
+
             # 添加到向量数据库
             vectorstore = get_vectorstore(self.persist_directory)
             vectorstore.add_documents(documents)
@@ -113,6 +141,7 @@ class KnowledgeBaseService:
                 "skills_count": len(skills),
                 "projects_count": len(projects),
                 "experience_count": len(experience),
+                "responsibilities_count": responsibilities_count,
                 "documents_added": len(documents),
             }
 

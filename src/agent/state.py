@@ -163,6 +163,7 @@ class InterviewContext:
     interview_mode: InterviewMode = InterviewMode.FREE
     feedback_mode: FeedbackMode = FeedbackMode.RECORDED
     error_threshold: int = 2
+    max_followup_depth: int = 3  # 最大追问深度
 
     # 面试进度
     current_series: int = 1
@@ -195,6 +196,7 @@ class InterviewContext:
 
     # 职责追踪（用于针对性提问）
     responsibilities: tuple[str, ...] = field(default_factory=tuple)  # 所有职责列表
+    series_responsibility_map: dict[int, int] = field(default_factory=dict)  # series_num -> responsibility_index (shuffled)
     current_responsibility_index: int = 0  # 当前职责索引
     current_project_index: int = 0  # 当前项目索引
 

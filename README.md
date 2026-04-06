@@ -26,31 +26,88 @@ AI Interview Agent 能够：
 
 ## 快速开始
 
-### 1. 安装依赖
+### 1. 环境要求
+
+| 服务 | 版本 | 说明 |
+|------|------|------|
+| PostgreSQL | 15+ | 主数据存储，需要 pgvector 扩展 |
+| Redis | 6+ | 会话缓存和记忆存储 |
+| Python | 3.10+ | 运行环境 |
+
+### 2. 启动依赖服务
+
+#### 启动 PostgreSQL
+
+```bash
+# macOS (使用 Homebrew)
+brew services start postgresql@15
+brew services start postgresql@16
+
+# Linux (使用 systemd)
+sudo systemctl start postgresql
+
+# Windows (使用 Docker)
+docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=postgres -e POSTGRES_USER=postgres -e POSTGRES_DB=postgres --name postgres pgvector/pgvector:pg16
+```
+
+#### 启动 Redis
+
+```bash
+# macOS (使用 Homebrew)
+brew services start redis
+
+# Linux (使用 systemd)
+sudo systemctl start redis
+
+# Windows (使用 Docker)
+docker run -d -p 6379:6379 --name redis redis:alpine
+```
+
+#### 初始化数据库（首次运行）
+
+```bash
+# 初始化数据库表和 pgvector 扩展
+uv run python scripts/init_db.py
+```
+
+### 3. 安装依赖
 
 ```bash
 # 激活 uv 虚拟环境
 .venv\Scripts\activate
 
-# 使用 uv 运行
-uv run python main.py
+# 安装依赖（如果需要）
+uv sync
 ```
 
-### 2. 启动服务
+### 4. 启动服务
 
 ```bash
 uv run uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-### 3. 访问 API 文档
+### 5. 访问 API 文档
 
 - Swagger UI: http://localhost:8000/docs
 - ReDoc: http://localhost:8000/redoc
+- Web UI: http://localhost:8000 (如果配置了前端)
 
-### 4. 运行测试
+### 6. 运行测试
 
 ```bash
 uv run pytest tests/ -v
+```
+
+### 快速验证
+
+服务启动后，可通过以下方式验证：
+
+```bash
+# 健康检查
+curl http://localhost:8000/health
+
+# 响应示例
+{"status":"healthy","service":"ai-interview"}
 ```
 
 ## 项目架构
@@ -226,13 +283,14 @@ InterviewState:
       │
       ▼
 ┌─────────────────┐
-│ 加载简历 + RAG  │
-│ 知识库          │
+│ 加载简历知识库  │
+│ + responsibilities │
 └─────────────────┘
       │
       ▼
 ┌─────────────────┐
-│ 生成系列1-Q1    │
+│ 基于职责生成    │
+│ 系列问题        │
 └─────────────────┘
       │
       ▼
@@ -246,7 +304,8 @@ InterviewState:
               │
               ▼
  ┌─────────────────┐
- │ 系列间预生成缓存│
+ │ 问题去重检查    │
+ │ (跨会话)        │
  └─────────────────┘
       │
       ▼
@@ -255,6 +314,26 @@ InterviewState:
  │ 输出最终反馈    │
  └─────────────────┘
 ```
+
+### 基于职责的系列生成
+
+每个面试系列（series）对应简历中的一个职责（responsibility）：
+
+1. **职责提取**: LLM 从简历项目中提取职责列表
+2. **随机排序**: 以时间戳为种子打乱职责顺序
+3. **系列分配**: 每个系列对应一个职责
+4. **针对性提问**: 问题围绕该职责展开
+
+### 数据持久化
+
+| 数据 | 存储位置 | 说明 |
+|------|---------|------|
+| 简历原始内容 | Chroma | 元数据: `type=raw_resume` |
+| 技能列表 | Chroma | 元数据: `type=skills` |
+| 项目信息 | Chroma | 元数据: `type=project` |
+| 职责列表 | Chroma | 元数据: `type=responsibility` |
+| 问答历史 | Redis | 实时会话状态 |
+| 面试记录 | PostgreSQL | 持久化数据（待实现） |
 
 ## SSE 流式输出
 
@@ -378,6 +457,8 @@ password = ""
 [tool.ai-interview.database]
 url = "postgresql+asyncpg://postgres:postgres@localhost:5432/postgres"
 pool_size = 10
+pool_timeout = 30
+pool_recycle = 3600
 
 [tool.ai-interview.llm]
 api_key = "your_api_key"
@@ -406,6 +487,7 @@ default_max_series = 5
 default_error_threshold = 2
 max_followup_depth = 3
 session_ttl = 86400
+question_dedup_threshold = 0.85
 
 [tool.ai-interview.rag]
 top_k = 5
@@ -413,15 +495,23 @@ reranker_top_k = 10
 similarity_threshold = 0.7
 ```
 
-### PostgreSQL 初始化
+### 环境变量覆盖
 
-```bash
-# 创建数据库
-CREATE DATABASE ai_interview;
+配置项支持 `${VAR_NAME}` 格式的环境变量覆盖：
 
-# 启用 pgvector
-CREATE EXTENSION IF NOT EXISTS vector;
+```toml
+[tool.ai-interview.database]
+url = "postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@localhost:5432/postgres"
 ```
+
+### 数据库配置验证
+
+启动时会自动验证配置：
+- `url` 必须使用 `postgresql+asyncpg://` 驱动
+- `pool_size` 建议 1-100
+- `max_overflow` 建议 0-50
+- `pool_timeout` 建议 1-300 秒
+- `pool_recycle` 建议 >= 300 秒（连接健康检查）
 
 ## 测试
 
@@ -449,17 +539,21 @@ ai-interview/
 ├── pyproject.toml           # 项目配置
 ├── CLAUDE.md               # Claude 项目说明
 ├── README.md               # 本文档
-├── docs/
-│   └── API_docs.md         # API 文档
-├── migrations/
-│   └── 001_initial_schema.sql  # 数据库迁移
+├── config/
+│   └── config.toml          # 配置文件
+├── scripts/
+│   └── init_db.py           # 数据库初始化脚本
+├── data/
+│   └── vectorstore/         # Chroma 向量数据库持久化
 ├── src/
 │   ├── agent/              # LangGraph Agent
 │   ├── api/                # FastAPI 路由
 │   ├── dao/                # 数据访问层
 │   ├── db/                 # 数据库
+│   ├── llm/                # LLM 客户端和 Prompt
 │   ├── services/           # 业务服务
-│   └── tools/             # 工具函数
+│   ├── tools/             # 工具函数
+│   └── web/                # Web 前端
 └── tests/                  # 测试用例
     ├── test_agent_*.py
     ├── test_api_*.py

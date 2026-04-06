@@ -81,6 +81,25 @@ class RedisConfig:
         self.db: int = config.get("db", 0)
         self.password: Optional[str] = config.get("password") or None
 
+        # Validate configuration
+        self._validate()
+
+    def _validate(self):
+        """Validate Redis configuration"""
+        errors = []
+
+        if not self.host:
+            errors.append("Redis host is required")
+
+        if not isinstance(self.port, int) or self.port < 1 or self.port > 65535:
+            errors.append(f"Redis port must be between 1 and 65535, got: {self.port}")
+
+        if not isinstance(self.db, int) or self.db < 0:
+            errors.append(f"Redis db must be a non-negative integer, got: {self.db}")
+
+        if errors:
+            raise ValueError(f"Redis configuration errors: {'; '.join(errors)}")
+
     def to_redis_kwargs(self) -> dict:
         """Convert to redis.Redis kwargs"""
         kwargs = {
@@ -118,6 +137,61 @@ class DatabaseConfig:
         self.pool_timeout: int = config.get("pool_timeout", 30)
         self.pool_recycle: int = config.get("pool_recycle", 3600)
 
+        # Validate configuration
+        self._validate()
+
+    def _validate(self):
+        """Validate database configuration (except password)"""
+        errors = []
+
+        # Validate URL format
+        if not self.url:
+            errors.append("Database URL is required")
+        elif not self.url.startswith("postgresql+asyncpg://"):
+            errors.append("Database URL must use postgresql+asyncpg:// driver")
+
+        # Validate pool_size
+        if not isinstance(self.pool_size, int) or self.pool_size < 1:
+            errors.append(f"pool_size must be a positive integer, got: {self.pool_size}")
+        elif self.pool_size > 100:
+            errors.append(f"pool_size seems too large (max 100 recommended): {self.pool_size}")
+
+        # Validate max_overflow
+        if not isinstance(self.max_overflow, int) or self.max_overflow < 0:
+            errors.append(f"max_overflow must be a non-negative integer, got: {self.max_overflow}")
+        elif self.max_overflow > 50:
+            errors.append(f"max_overflow seems too large (max 50 recommended): {self.max_overflow}")
+
+        # Validate pool_timeout
+        if not isinstance(self.pool_timeout, int) or self.pool_timeout < 1:
+            errors.append(f"pool_timeout must be a positive integer, got: {self.pool_timeout}")
+        elif self.pool_timeout > 300:
+            errors.append(f"pool_timeout seems too large (max 300 recommended): {self.pool_timeout}")
+
+        # Validate pool_recycle
+        if not isinstance(self.pool_recycle, int) or self.pool_recycle < 1:
+            errors.append(f"pool_recycle must be a positive integer, got: {self.pool_recycle}")
+        elif self.pool_recycle < 300:
+            errors.append(f"pool_recycle should be at least 300 seconds for connection health")
+
+        if errors:
+            raise ValueError(f"Database configuration errors: {'; '.join(errors)}")
+
+    def get_connection_params(self) -> dict:
+        """Extract connection parameters from URL for validation"""
+        # Parse URL to extract host, port, database
+        # URL format: postgresql+asyncpg://user:pass@host:port/dbname
+        import urllib.parse
+        try:
+            parsed = urllib.parse.urlparse(self.url.replace("postgresql+asyncpg://", "postgresql://"))
+            return {
+                "host": parsed.hostname or "localhost",
+                "port": parsed.port or 5432,
+                "database": parsed.path.lstrip("/") or "postgres",
+            }
+        except Exception:
+            return {}
+
 
 def get_database_config() -> DatabaseConfig:
     """Get database configuration"""
@@ -143,6 +217,36 @@ class LLMConfig:
         self.max_tokens: int = config.get("max_tokens", 2048)
         self.temperature: float = config.get("temperature", 0.7)
 
+        # Validate configuration
+        self._validate()
+
+    def _validate(self):
+        """Validate LLM configuration"""
+        warnings = []
+
+        if not self.api_key:
+            warnings.append("LLM api_key is not set")
+
+        if not self.base_url:
+            warnings.append("LLM base_url is required")
+        elif not self.base_url.startswith(("http://", "https://")):
+            warnings.append(f"LLM base_url should start with http:// or https://: {self.base_url}")
+
+        if not self.model:
+            warnings.append("LLM model is not set")
+
+        if self.max_tokens < 1 or self.max_tokens > 128000:
+            warnings.append(f"max_tokens should be between 1 and 128000, got: {self.max_tokens}")
+
+        if self.temperature < 0 or self.temperature > 2:
+            warnings.append(f"temperature should be between 0 and 2, got: {self.temperature}")
+
+        if warnings:
+            import logging
+            logger = logging.getLogger(__name__)
+            for w in warnings:
+                logger.warning(f"[LLMConfig] {w}")
+
 
 # =============================================================================
 # Embedding Configuration
@@ -161,6 +265,27 @@ class EmbeddingConfig:
         )
         self.model: str = config.get("model", "text-embedding-v3")
         self.dimensions: int = config.get("dimensions", 1024)
+
+    def _validate(self):
+        """Validate Embedding configuration"""
+        warnings = []
+
+        if not self.api_key:
+            warnings.append("Embedding api_key is not set")
+
+        if not self.base_url:
+            warnings.append("Embedding base_url is required")
+        elif not self.base_url.startswith(("http://", "https://")):
+            warnings.append(f"Embedding base_url should start with http:// or https://: {self.base_url}")
+
+        if not self.model:
+            warnings.append("Embedding model is not set")
+
+        if warnings:
+            import logging
+            logger = logging.getLogger(__name__)
+            for w in warnings:
+                logger.warning(f"[EmbeddingConfig] {w}")
 
 
 def get_llm_config() -> LLMConfig:

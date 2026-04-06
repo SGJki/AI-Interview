@@ -223,6 +223,8 @@ class KnowledgeBase(Base):
     embedding_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # pgvector reference
     responsibility_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # 职责索引
     responsibility_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # 完整职责文本
+    question_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # 问题ID（用于问题去重）
+    session_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # 会话ID（用于跨会话问题过滤）
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=datetime.now,
@@ -238,6 +240,8 @@ class KnowledgeBase(Base):
         Index("ix_knowledge_base_skill_point", "skill_point"),
         Index("ix_knowledge_base_type", "type"),
         Index("ix_knowledge_base_responsibility_id", "responsibility_id"),
+        Index("ix_knowledge_base_question_id", "question_id"),
+        Index("ix_knowledge_base_session_id", "session_id"),
     )
 
     def __repr__(self) -> str:

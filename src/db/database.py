@@ -137,3 +137,26 @@ async def close_database_manager() -> None:
     if _default_db is not None:
         await _default_db.close()
         _default_db = None
+
+
+async def get_db_session() -> AsyncGenerator[AsyncSession, None]:
+    """
+    Get async database session as context manager (convenience function).
+
+    Uses the default database manager instance.
+
+    Yields:
+        AsyncSession: SQLAlchemy async session
+
+    Example:
+        async for session in get_db_session():
+            await session.execute(query)
+    """
+    db = get_database_manager()
+    async with db.session_factory() as session:
+        try:
+            yield session
+            await session.commit()
+        except Exception:
+            await session.rollback()
+            raise

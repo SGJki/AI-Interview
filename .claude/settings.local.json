@@ -28,7 +28,13 @@
       "Bash(ls -la \"C:\\\\Users\\\\13253\\\\dataDisk\\\\Agent_AI\\\\AI-Interview\"/*.py \"C:\\\\Users\\\\13253\\\\dataDisk\\\\Agent_AI\\\\AI-Interview\"/*.sh \"C:\\\\Users\\\\13253\\\\dataDisk\\\\Agent_AI\\\\AI-Interview\"/*.bat)",
       "Bash(ruff check:*)",
       "Bash(mypy src/)",
-      "Bash(bandit -r src/)"
+      "Bash(bandit -r src/)",
+      "Bash(.venv/Scripts/python -m py_compile src/services/interview_service.py)",
+      "Bash(.venv/Scripts/python -c \"from src.config import get_database_config, get_redis_config; db = get_database_config\\(\\); print\\(f'Database URL: {db.url}'\\); print\\(f'Pool size: {db.pool_size}'\\)\")",
+      "Bash(.venv/Scripts/python -c \"from src.config import get_redis_config; r = get_redis_config\\(\\); print\\(f'Redis host: {r.host}, port: {r.port}'\\)\")",
+      "Bash(.venv/Scripts/python -m py_compile src/main.py)",
+      "Bash(.venv/Scripts/python -m py_compile src/services/knowledge_base_service.py)",
+      "Bash(.venv/Scripts/python -m py_compile src/llm/prompts.py)"
     ]
   }
 }

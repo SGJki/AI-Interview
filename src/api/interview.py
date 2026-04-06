@@ -83,7 +83,7 @@ async def _yield_sse_events(event_stream) -> AsyncGenerator[dict, None]:
     async for event in event_stream:
         yield {
             "event": event["type"],
-            "data": json.dumps(event["data"]),
+            "data": json.dumps(event["data"], ensure_ascii=False),
         }
 
 
@@ -100,7 +100,7 @@ def _yield_pending_feedbacks(pending_feedbacks: list) -> list[dict]:
                 "feedback_content": pf.get("feedback_content"),
                 "feedback_type": pf.get("feedback_type", "comment"),
                 "guidance": pf.get("guidance"),
-            }),
+            }, ensure_ascii=False),
         })
     return events
 
@@ -206,7 +206,7 @@ async def get_question(
                     followup_depth=context.followup_depth,
                     followup_chain=context.followup_chain or [],
                     error_count=context.error_count,
-                    max_followup_depth=3,
+                    max_followup_depth=context.max_followup_depth,
                     series_history={},
                     interview_mode=context.interview_mode,
                     feedback_mode=context.feedback_mode,
@@ -331,7 +331,7 @@ async def submit_answer(request: SubmitAnswerRequest) -> EventSourceResponse:
                     followup_depth=context.followup_depth,
                     followup_chain=context.followup_chain or [],
                     error_count=context.error_count,
-                    max_followup_depth=3,
+                    max_followup_depth=context.max_followup_depth,
                     series_history={},
                     interview_mode=context.interview_mode,
                     feedback_mode=context.feedback_mode,
