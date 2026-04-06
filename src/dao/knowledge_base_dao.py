@@ -5,10 +5,10 @@ KnowledgeBase DAO - Data Access Object for knowledge_base table
 from typing import Optional
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.db.models import KnowledgeBase
+from src.db.models import KnowledgeBase, Project
 
 
 class KnowledgeBaseDAO:
@@ -159,3 +159,42 @@ class KnowledgeBaseDAO:
         await self.session.flush()
         await self.session.refresh(knowledge_base)
         return knowledge_base
+
+    async def find_by_responsibility_id(self, responsibility_id: int) -> list[KnowledgeBase]:
+        """
+        Find all knowledge base entries for a specific responsibility.
+
+        Args:
+            responsibility_id: Responsibility index
+
+        Returns:
+            List of knowledge base entries for the responsibility
+        """
+        result = await self.session.execute(
+            select(KnowledgeBase).where(KnowledgeBase.responsibility_id == responsibility_id)
+        )
+        return list(result.scalars().all())
+
+    async def find_responsibilities_by_resume(self, resume_id: UUID) -> list[KnowledgeBase]:
+        """
+        Find all responsibility-type KB entries for a resume.
+
+        Args:
+            resume_id: Resume UUID
+
+        Returns:
+            List of responsibility knowledge base entries
+        """
+        # Join with Project to filter by resume_id
+        result = await self.session.execute(
+            select(KnowledgeBase)
+            .join(Project, KnowledgeBase.project_id == Project.id)
+            .where(
+                and_(
+                    Project.resume_id == resume_id,
+                    KnowledgeBase.type == "responsibility"
+                )
+            )
+            .order_by(KnowledgeBase.responsibility_id)
+        )
+        return list(result.scalars().all())

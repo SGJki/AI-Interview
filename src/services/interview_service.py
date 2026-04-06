@@ -158,6 +158,9 @@ class InterviewService:
         if self.knowledge_base_id:
             await self._load_knowledge_base()
 
+        # 加载职责列表（用于针对性提问）
+        await self._load_responsibilities()
+
         # 生成第一个问题
         question = await self._generate_next_question()
 
@@ -394,6 +397,64 @@ class InterviewService:
             except Exception as e:
                 logger.error(f"[_load_knowledge_base] error loading knowledge: {e}")
 
+    async def _load_responsibilities(self):
+        """加载职责列表
+
+        从知识库加载简历中的个人职责，用于针对性提问
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        if not self.context or not self.resume_id:
+            return
+
+        logger.info(f"[_load_responsibilities] resume_id={self.resume_id}")
+
+        try:
+            # 从向量库检索职责类型的内容
+            docs = await retrieve_knowledge(
+                query="个人职责 工作内容 项目责任",
+                top_k=50,
+                filter_metadata={
+                    "resume_id": self.resume_id,
+                    "type": "responsibility"
+                }
+            )
+            logger.info(f"[_load_responsibilities] retrieved {len(docs)} responsibility docs")
+
+            responsibilities = []
+            seen = set()
+            for doc in docs:
+                content = doc.page_content.strip()
+                # 去重
+                if content and content not in seen:
+                    seen.add(content)
+                    responsibilities.append(content)
+
+            # 更新 context
+            self.context.responsibilities = tuple(responsibilities)
+            logger.info(f"[_load_responsibilities] loaded {len(responsibilities)} unique responsibilities")
+
+        except Exception as e:
+            logger.error(f"[_load_responsibilities] error: {e}")
+
+    def _get_responsibility_for_series(self, series_num: int) -> str:
+        """获取指定系列对应的职责
+
+        Args:
+            series_num: 系列编号（从1开始）
+
+        Returns:
+            职责文本，如果没有职责则返回空字符串
+        """
+        if not self.context or not self.context.responsibilities:
+            return ""
+
+        responsibilities = self.context.responsibilities
+        # 使用 modulo 轮换职责（如果系列数超过职责数量）
+        resp_idx = (series_num - 1) % len(responsibilities)
+        return responsibilities[resp_idx]
+
     async def _generate_next_question(self) -> Question:
         """
         生成下一个问题
@@ -487,6 +548,12 @@ class InterviewService:
         logger.info(f"[_generate_next_question_stream] ENTRY resume_context len={len(self.context.resume_context)}")
 
         resume_info = self.context.resume_context or self.resume_id or "无简历信息"
+
+        # 获取当前系列对应的职责（用于针对性提问）
+        responsibility_context = self._get_responsibility_for_series(self.state.current_series)
+        if responsibility_context:
+            resume_info = f"{resume_info}\n\n【当前面试重点】{responsibility_context}"
+
         logger.info(f"[_generate_next_question_stream] resume_info preview: {resume_info[:100]}...")
         topic_area = self._get_next_topic()
         knowledge_context = self.context.knowledge_context or ""

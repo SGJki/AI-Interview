@@ -221,6 +221,8 @@ class KnowledgeBase(Base):
     skill_point: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
     content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     embedding_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # pgvector reference
+    responsibility_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # 职责索引
+    responsibility_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # 完整职责文本
     created_at: Mapped[datetime] = mapped_column(
         DateTime,
         default=datetime.now,
@@ -235,6 +237,7 @@ class KnowledgeBase(Base):
         Index("ix_knowledge_base_project_id", "project_id"),
         Index("ix_knowledge_base_skill_point", "skill_point"),
         Index("ix_knowledge_base_type", "type"),
+        Index("ix_knowledge_base_responsibility_id", "responsibility_id"),
     )
 
     def __repr__(self) -> str:

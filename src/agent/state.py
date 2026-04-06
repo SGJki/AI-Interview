@@ -193,6 +193,11 @@ class InterviewContext:
     current_knowledge: str = ""  # 当前问题相关的知识
     question_contents: dict[str, str] = field(default_factory=dict)  # question_id -> question content
 
+    # 职责追踪（用于针对性提问）
+    responsibilities: tuple[str, ...] = field(default_factory=tuple)  # 所有职责列表
+    current_responsibility_index: int = 0  # 当前职责索引
+    current_project_index: int = 0  # 当前项目索引
+
 
 @dataclass(frozen=True)
 class FinalFeedback:

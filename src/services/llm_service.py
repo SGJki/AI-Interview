@@ -43,6 +43,7 @@ class InterviewLLMService:
         interview_mode: str = "free",
         topic_area: str = "技术能力",
         knowledge_context: str = "",
+        responsibility_context: str = "",
     ) -> Question:
         """
         生成面试问题
@@ -53,6 +54,7 @@ class InterviewLLMService:
             interview_mode: 面试模式 (free/training)
             topic_area: 主题领域
             knowledge_context: 知识库上下文
+            responsibility_context: 当前职责上下文（针对性提问用）
 
         Returns:
             生成的 Question 对象
@@ -64,6 +66,7 @@ class InterviewLLMService:
             interview_mode=interview_mode,
             topic_area=topic_area,
             knowledge_context=knowledge_context or "无相关上下文",
+            responsibility_context=responsibility_context or "",
         )
 
         try:
@@ -98,6 +101,7 @@ class InterviewLLMService:
         interview_mode: str = "free",
         topic_area: str = "技术能力",
         knowledge_context: str = "",
+        responsibility_context: str = "",
     ):
         """
         生成面试问题（流式）
@@ -108,6 +112,7 @@ class InterviewLLMService:
             interview_mode: 面试模式 (free/training)
             topic_area: 主题领域
             knowledge_context: 知识库上下文
+            responsibility_context: 当前职责上下文（针对性提问用）
 
         Yields:
             问题的每个 token
@@ -119,6 +124,7 @@ class InterviewLLMService:
             interview_mode=interview_mode,
             topic_area=topic_area,
             knowledge_context=knowledge_context or "无相关上下文",
+            responsibility_context=responsibility_context or "",
         )
 
         try:

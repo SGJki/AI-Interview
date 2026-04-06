@@ -24,6 +24,7 @@ class ProjectInfo:
     role: Optional[str] = None
     duration: Optional[str] = None
     highlights: list[str] = field(default_factory=list)
+    responsibilities: list[str] = field(default_factory=list)  # 个人职责列表
 
 
 @dataclass
@@ -137,6 +138,117 @@ def _categorize_skills(skills: list[str]) -> dict[str, list[str]]:
     return categories
 
 
+# =============================================================================
+# Responsibility Extraction Patterns
+# =============================================================================
+
+RESPONSIBILITY_KEYWORDS = [
+    "负责", "主导", "参与", "开发", "设计", "实现", "构建",
+    "搭建", "优化", "改进", "改进", "维护", "管理", "协调", "推动",
+    "创建", "研发", "规划", "组织", "带领", "承担", "独立完成",
+    "团队协作", "技术攻关", "性能优化", "架构设计", "模块开发",
+    "接口设计", "数据库设计", "前端开发", "后端开发", "全栈开发",
+    "测试", "部署", "上线", "监控", "日志", "异常处理",
+]
+
+
+def _extract_responsibilities(text: str, max_per_project: int = 5) -> list[str]:
+    """
+    从项目描述中提取个人职责条目
+
+    Args:
+        text: 项目文本内容
+        max_per_project: 每个项目最多提取的职责数量
+
+    Returns:
+        职责列表
+    """
+    responsibilities = []
+
+    # 按行分割，处理列表项
+    lines = text.split('\n')
+    current_items = []
+
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+
+        # 检查是否是以职责关键词开头的行
+        is_responsibility_line = False
+        for kw in RESPONSIBILITY_KEYWORDS:
+            if kw in line and len(line) > 5:
+                is_responsibility_line = True
+                break
+
+        # 检查是否是列表项（• - * 或数字序号）
+        list_match = re.match(r'^[\•\-\*\▸\>]+(.+)$', line)
+        numbered_match = re.match(r'^\d+[\.、](.+)$', line)
+
+        list_content = None
+        if list_match:
+            list_content = list_match.group(1).strip()
+        elif numbered_match:
+            list_content = numbered_match.group(1).strip()
+
+        if list_content:
+            # 是列表项
+            if current_items:
+                # 保存之前的
+                full_resp = ' '.join(current_items).strip()
+                if full_resp and len(full_resp) > 5:
+                    responsibilities.append(full_resp)
+                current_items = []
+
+            # 检查内容是否包含职责关键词
+            is_resp = any(kw in list_content for kw in RESPONSIBILITY_KEYWORDS)
+            if is_resp:
+                responsibilities.append(list_content)
+        elif is_responsibility_line:
+            # 是职责描述行
+            if current_items:
+                # 保存之前的
+                full_resp = ' '.join(current_items).strip()
+                if full_resp and len(full_resp) > 5:
+                    responsibilities.append(full_resp)
+                current_items = []
+
+            # 提取职责内容（去掉关键词部分）
+            resp_text = line
+            for kw in RESPONSIBILITY_KEYWORDS:
+                if kw in resp_text:
+                    idx = resp_text.find(kw) + len(kw)
+                    resp_text = resp_text[idx:].strip()
+                    break
+
+            # 清理列表标记
+            resp_text = re.sub(r'^[\•\-\*\▸\>\d\.、]+', '', resp_text).strip()
+
+            if resp_text and len(resp_text) > 3:
+                current_items.append(resp_text)
+        elif current_items:
+            # 继续之前的职责（可能是多行描述）
+            current_items.append(line)
+
+    # 处理最后一项
+    if current_items:
+        full_resp = ' '.join(current_items).strip()
+        if full_resp and len(full_resp) > 5:
+            responsibilities.append(full_resp)
+
+    # 去重并限制数量
+    seen = set()
+    unique_responsibilities = []
+    for resp in responsibilities:
+        # 标准化：去除多余空格，转小写比较
+        normalized = ' '.join(resp.split()).lower()
+        if normalized not in seen and len(resp) > 5:
+            seen.add(normalized)
+            unique_responsibilities.append(resp)
+
+    return unique_responsibilities[:max_per_project]
+
+
 def _extract_projects(text: str) -> list[ProjectInfo]:
     """从文本中提取项目信息"""
     projects = []
@@ -160,11 +272,15 @@ def _extract_projects(text: str) -> list[ProjectInfo]:
         highlight_pattern = r"[•\-\*]\s*([^\n]+)"
         highlights = re.findall(highlight_pattern, project_text)
 
+        # 提取个人职责
+        responsibilities = _extract_responsibilities(project_text)
+
         projects.append(ProjectInfo(
             name=project_name,
             description=project_text[:200],  # 截取前200字符
             technologies=technologies,
             highlights=highlights[:3],  # 最多3个亮点
+            responsibilities=responsibilities,  # 个人职责列表
         ))
 
     return projects
