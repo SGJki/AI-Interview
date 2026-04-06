@@ -9,5 +9,5 @@ wheels/
 # Virtual environments
 .venv
 .idea
-/config/config.toml
-/data/vectorstore/
+config/config.toml
+data/vectorstore/
