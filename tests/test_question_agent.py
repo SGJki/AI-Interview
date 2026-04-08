@@ -120,5 +120,156 @@ class TestQuestionAgentFunctions:
 # state.evaluation_results which doesn't exist yet (placeholder implementation)
 # The routing logic will be tested when actual implementation is done
 
+
+class TestQuestionAgentLLMIntegration:
+    """Test QuestionAgent LLM integration with mocked services"""
+
+    @pytest.mark.asyncio
+    async def test_generate_warmup_success(self):
+        """Test generate_warmup with mocked LLM service"""
+        from unittest.mock import AsyncMock, patch
+        from src.agent.question_agent import generate_warmup
+        from src.agent.state import Question, QuestionType
+
+        state = InterviewState(session_id="test", resume_id="r1")
+
+        with patch('src.agent.question_agent.get_llm_service') as mock:
+            service = AsyncMock()
+            mock_question = Question(
+                content="请介绍一下你自己",
+                question_type=QuestionType.INITIAL,
+                series=0,
+                number=0,
+                parent_question_id=None,
+            )
+            service.generate_question = AsyncMock(return_value=mock_question)
+            mock.return_value = service
+
+            result = await generate_warmup(state)
+
+            assert result["current_question"] is not None
+            assert result["current_question"].content == "请介绍一下你自己"
+            assert result["followup_depth"] == 0
+            assert result["current_question_id"] is not None
+            assert result["followup_chain"] is not None
+
+    @pytest.mark.asyncio
+    async def test_generate_warmup_fallback_on_llm_error(self):
+        """Test generate_warmup falls back to default on LLM error"""
+        from unittest.mock import AsyncMock, patch
+        from src.agent.question_agent import generate_warmup
+        from src.agent.state import Question, QuestionType
+
+        state = InterviewState(session_id="test", resume_id="r1")
+
+        with patch('src.agent.question_agent.get_llm_service') as mock:
+            service = AsyncMock()
+            service.generate_question = AsyncMock(side_effect=Exception("LLM error"))
+            mock.return_value = service
+
+            result = await generate_warmup(state)
+
+            # Should fallback to default question
+            assert result["current_question"] is not None
+            assert result["current_question"].content == "请简单介绍一下你自己"
+            assert result["followup_depth"] == 0
+
+    @pytest.mark.asyncio
+    async def test_generate_initial_success(self):
+        """Test generate_initial with mocked LLM service"""
+        from unittest.mock import AsyncMock, patch
+        from src.agent.question_agent import generate_initial
+        from src.agent.state import Question, QuestionType, InterviewMode
+
+        state = InterviewState(
+            session_id="test",
+            resume_id="r1",
+            current_series=1,
+            interview_mode=InterviewMode.FREE,
+        )
+
+        with patch('src.agent.question_agent.get_llm_service') as mock:
+            service = AsyncMock()
+            mock_question = Question(
+                content="请谈谈你对后端开发的经验",
+                question_type=QuestionType.INITIAL,
+                series=1,
+                number=1,
+                parent_question_id=None,
+            )
+            service.generate_question = AsyncMock(return_value=mock_question)
+            mock.return_value = service
+
+            result = await generate_initial(state, "", "后端开发")
+
+            assert result["current_question"] is not None
+            assert result["current_question"].content == "请谈谈你对后端开发的经验"
+            assert result["followup_depth"] == 0
+
+    @pytest.mark.asyncio
+    async def test_generate_followup_success(self):
+        """Test generate_followup with mocked LLM service"""
+        from unittest.mock import AsyncMock, patch
+        from src.agent.question_agent import generate_followup
+        from src.agent.state import Question, QuestionType
+
+        state = InterviewState(
+            session_id="test",
+            resume_id="r1",
+            current_series=1,
+            current_question=Question(
+                content="请谈谈你对后端开发的经验",
+                question_type=QuestionType.INITIAL,
+                series=1,
+                number=1,
+                parent_question_id=None,
+            ),
+            current_question_id="q_abc123",
+            followup_depth=0,
+            followup_chain=["q_abc123"],
+        )
+
+        qa_history = [
+            {"question": "请谈谈你对后端开发的经验", "answer": "我主要使用Python进行后端开发"}
+        ]
+        evaluation = {"is_correct": True}
+
+        with patch('src.agent.question_agent.get_llm_service') as mock:
+            service = AsyncMock()
+            mock_followup = Question(
+                content="能详细说说吗？",
+                question_type=QuestionType.FOLLOWUP,
+                series=1,
+                number=2,
+                parent_question_id="q_abc123",
+            )
+            service.generate_followup_question = AsyncMock(return_value=mock_followup)
+            mock.return_value = service
+
+            result = await generate_followup(state, qa_history, evaluation)
+
+            assert result["current_question"] is not None
+            assert result["current_question"].content == "能详细说说吗？"
+            assert result["followup_depth"] == 1
+            assert result["current_question_id"] != "q_abc123"
+
+    @pytest.mark.asyncio
+    async def test_generate_followup_returns_none_when_no_current_question(self):
+        """Test generate_followup returns None when no current question"""
+        from src.agent.question_agent import generate_followup
+
+        state = InterviewState(
+            session_id="test",
+            resume_id="r1",
+            current_question=None,
+            current_question_id=None,
+        )
+
+        result = await generate_followup(state, [], {})
+
+        assert result["current_question"] is None
+        assert result["current_question_id"] is None
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
