@@ -3,6 +3,8 @@ Tests for KnowledgeAgent - Knowledge base and responsibility management subgraph
 """
 
 import pytest
+from unittest.mock import AsyncMock, patch
+from dataclasses import replace
 from src.agent.knowledge_agent import (
     create_knowledge_agent_graph,
     knowledge_agent_graph,
@@ -12,6 +14,55 @@ from src.agent.knowledge_agent import (
     find_standard_answer,
 )
 from src.agent.state import InterviewState
+
+
+@pytest.mark.asyncio
+async def test_find_standard_answer_found():
+    """测试找到标准答案"""
+    state = replace(
+        InterviewState(session_id="test", resume_id="r1"),
+        mastered_questions={
+            "q1": {"answer": "使用 Redis", "standard_answer": "使用 Redis 缓存", "deviation_score": 0.9}
+        }
+    )
+
+    with patch('src.services.embedding_service.compute_similarity', new_callable=AsyncMock) as mock:
+        mock.return_value = 0.85
+
+        result = await find_standard_answer(state, "如何优化性能？")
+
+        assert result["standard_answer"] == "使用 Redis 缓存"
+        assert result["similarity_score"] == 0.85
+
+
+@pytest.mark.asyncio
+async def test_find_standard_answer_not_found():
+    """测试未找到标准答案（无匹配项）"""
+    state = replace(
+        InterviewState(session_id="test", resume_id="r1"),
+        mastered_questions={
+            "q1": {"answer": "使用 Redis", "standard_answer": "使用 Redis 缓存", "deviation_score": 0.9}
+        }
+    )
+
+    with patch('src.services.embedding_service.compute_similarity', new_callable=AsyncMock) as mock:
+        mock.return_value = 0.5  # 相似度低于阈值
+
+        result = await find_standard_answer(state, "不相关的问题？")
+
+        assert result["standard_answer"] is None
+        assert result["similarity_score"] == 0.0
+
+
+@pytest.mark.asyncio
+async def test_find_standard_answer_no_mastered_questions():
+    """测试没有 mastered_questions 的情况"""
+    state = InterviewState(session_id="test", resume_id="r1")
+
+    result = await find_standard_answer(state, "任何问题？")
+
+    assert result["standard_answer"] is None
+    assert result["similarity_score"] == 0.0
 
 
 class TestKnowledgeAgentGraph:
