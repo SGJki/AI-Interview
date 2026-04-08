@@ -7,6 +7,7 @@ from src.agent.knowledge_agent import knowledge_agent_graph
 from src.agent.question_agent import question_agent_graph
 from src.agent.evaluate_agent import evaluate_agent_graph
 from src.agent.feedback_agent import feedback_agent_graph
+from src.agent.review_agent import review_agent_graph
 
 
 async def init_node(state: InterviewState) -> dict:
@@ -55,6 +56,7 @@ def create_orchestrator_graph() -> StateGraph:
     graph.add_node("question_agent", question_agent_graph)
     graph.add_node("evaluate_agent", evaluate_agent_graph)
     graph.add_node("feedback_agent", feedback_agent_graph)
+    graph.add_node("review_agent", review_agent_graph)
     graph.set_entry_point("init")
     graph.add_edge("init", "orchestrator")
     graph.add_edge("orchestrator", "decide_next")
@@ -67,11 +69,13 @@ def create_orchestrator_graph() -> StateGraph:
             "knowledge_agent": "knowledge_agent",
             "evaluate_agent": "evaluate_agent",
             "feedback_agent": "feedback_agent",
+            "review_agent": "review_agent",
             "final_feedback": "final_feedback",
         }
     )
     graph.add_edge("question_agent", "evaluate_agent")
-    graph.add_edge("evaluate_agent", "feedback_agent")
+    graph.add_edge("evaluate_agent", "review_agent")
+    graph.add_edge("review_agent", "feedback_agent")
     graph.add_edge("feedback_agent", "decide_next")
     graph.add_edge("final_feedback", END)
     return graph.compile()
