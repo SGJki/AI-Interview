@@ -82,7 +82,7 @@ async def generate_guidance(
     llm_service = get_llm_service()
 
     deviation_score = evaluation.get("deviation_score", 0)
-    is_correct = evaluation.get("is_correct", True)
+    is_correct = evaluation.get("is_correct", False)
 
     try:
         feedback = await llm_service.generate_feedback(
@@ -131,7 +131,7 @@ async def generate_comment(
     llm_service = get_llm_service()
 
     deviation_score = evaluation.get("deviation_score", 0)
-    is_correct = evaluation.get("is_correct", True)
+    is_correct = evaluation.get("is_correct", False)
 
     try:
         feedback = await llm_service.generate_feedback(
