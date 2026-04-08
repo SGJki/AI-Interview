@@ -80,7 +80,6 @@ class TestOrchestratorNodes:
 
     def test_decide_next_routes_to_question_agent(self):
         """Test decide_next routes to question_agent in normal flow."""
-        from src.config import config
         state = InterviewState(session_id="test", resume_id="test")
         state = replace(state, current_series=1, error_count=0, all_responsibilities_used=False)
         result = decide_next_node(state)

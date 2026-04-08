@@ -1,6 +1,5 @@
 """Main Orchestrator - LangGraph main entry point."""
-from typing import Literal
-from langgraph.graph import StateGraph, END, START
+from langgraph.graph import StateGraph, END
 from src.agent.state import InterviewState
 from src.agent.resume_agent import resume_agent_graph
 from src.agent.knowledge_agent import knowledge_agent_graph
@@ -45,18 +44,42 @@ async def final_feedback_node(state: InterviewState) -> dict:
     return {"phase": "completed"}
 
 
+async def resume_agent_node(state: InterviewState) -> dict:
+    return await resume_agent_graph.ainvoke(state)
+
+
+async def knowledge_agent_node(state: InterviewState) -> dict:
+    return await knowledge_agent_graph.ainvoke(state)
+
+
+async def question_agent_node(state: InterviewState) -> dict:
+    return await question_agent_graph.ainvoke(state)
+
+
+async def evaluate_agent_node(state: InterviewState) -> dict:
+    return await evaluate_agent_graph.ainvoke(state)
+
+
+async def feedback_agent_node(state: InterviewState) -> dict:
+    return await feedback_agent_graph.ainvoke(state)
+
+
+async def review_agent_node(state: InterviewState) -> dict:
+    return await review_agent_graph.ainvoke(state)
+
+
 def create_orchestrator_graph() -> StateGraph:
     graph = StateGraph(InterviewState)
     graph.add_node("init", init_node)
     graph.add_node("orchestrator", orchestrator_node)
     graph.add_node("decide_next", decide_next_node)
     graph.add_node("final_feedback", final_feedback_node)
-    graph.add_node("resume_agent", resume_agent_graph)
-    graph.add_node("knowledge_agent", knowledge_agent_graph)
-    graph.add_node("question_agent", question_agent_graph)
-    graph.add_node("evaluate_agent", evaluate_agent_graph)
-    graph.add_node("feedback_agent", feedback_agent_graph)
-    graph.add_node("review_agent", review_agent_graph)
+    graph.add_node("resume_agent", resume_agent_node)
+    graph.add_node("knowledge_agent", knowledge_agent_node)
+    graph.add_node("question_agent", question_agent_node)
+    graph.add_node("evaluate_agent", evaluate_agent_node)
+    graph.add_node("feedback_agent", feedback_agent_node)
+    graph.add_node("review_agent", review_agent_node)
     graph.set_entry_point("init")
     graph.add_edge("init", "orchestrator")
     graph.add_edge("orchestrator", "decide_next")
