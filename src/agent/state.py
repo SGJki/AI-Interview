@@ -159,6 +159,9 @@ class InterviewState:
     # Phase tracking
     phase: Literal["init", "warmup", "initial", "followup", "final_feedback"] = "init"
 
+    # Routing action (used by decide_next_node and conditional edges)
+    next_action: Optional[str] = None
+
 
 @dataclass
 class InterviewContext:

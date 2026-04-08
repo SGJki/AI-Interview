@@ -84,7 +84,7 @@ class TestOrchestratorNodes:
         state = InterviewState(session_id="test", resume_id="test")
         state = replace(state, current_series=1, error_count=0, all_responsibilities_used=False)
         result = decide_next_node(state)
-        assert result == "question_agent"
+        assert result == {"next_action": "question_agent"}
 
     def test_decide_next_routes_to_final_feedback_when_max_series_reached(self):
         """Test decide_next routes to final_feedback when max series reached."""
@@ -92,7 +92,7 @@ class TestOrchestratorNodes:
         state = InterviewState(session_id="test", resume_id="test")
         state = replace(state, current_series=config.max_series + 1)
         result = decide_next_node(state)
-        assert result == "final_feedback"
+        assert result == {"next_action": "final_feedback"}
 
     def test_decide_next_routes_to_final_feedback_when_error_threshold_reached(self):
         """Test decide_next routes to final_feedback when error threshold reached."""
@@ -100,7 +100,7 @@ class TestOrchestratorNodes:
         state = InterviewState(session_id="test", resume_id="test")
         state = replace(state, error_count=config.error_threshold + 1, current_series=1)
         result = decide_next_node(state)
-        assert result == "final_feedback"
+        assert result == {"next_action": "final_feedback"}
 
     @pytest.mark.asyncio
     async def test_final_feedback_node_returns_completed_phase(self):
@@ -108,6 +108,27 @@ class TestOrchestratorNodes:
         state = InterviewState(session_id="test", resume_id="test")
         result = await final_feedback_node(state)
         assert result["phase"] == "completed"
+
+
+class TestQuestionToFeedbackFlow:
+    """Test the full flow from question generation to feedback."""
+
+    @pytest.mark.asyncio
+    async def test_question_to_feedback_flow(self):
+        """测试从问题生成到反馈的完整流程"""
+        initial_state = InterviewState(
+            session_id="test_session",
+            resume_id="test_resume",
+        )
+
+        result = await orchestrator_graph.ainvoke(initial_state)
+
+        # 验证流程能够执行并返回状态
+        assert result is not None
+        # 至少应该有一个问题或反馈被生成
+        has_question = "current_question" in result and result["current_question"] is not None
+        has_feedback = len(result.get("feedbacks", {})) > 0
+        assert has_question or has_feedback, "Expected either a question or feedback in result"
 
 
 class TestReviewAgentIntegration:

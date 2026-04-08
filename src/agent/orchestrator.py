@@ -28,17 +28,17 @@ async def orchestrator_node(state: InterviewState) -> dict:
     return {"phase": "final_feedback"}
 
 
-def decide_next_node(state: InterviewState) -> Literal["question_agent", "final_feedback", END]:
+def decide_next_node(state: InterviewState) -> dict:
     from src.config import config
     if getattr(state, "user_end_requested", False):
-        return "final_feedback"
+        return {"next_action": "final_feedback"}
     if state.current_series >= config.max_series:
-        return "final_feedback"
+        return {"next_action": "final_feedback"}
     if state.error_count >= config.error_threshold:
-        return "final_feedback"
+        return {"next_action": "final_feedback"}
     if getattr(state, "all_responsibilities_used", False):
-        return "final_feedback"
-    return "question_agent"
+        return {"next_action": "final_feedback"}
+    return {"next_action": "question_agent"}
 
 
 async def final_feedback_node(state: InterviewState) -> dict:
@@ -62,7 +62,7 @@ def create_orchestrator_graph() -> StateGraph:
     graph.add_edge("orchestrator", "decide_next")
     graph.add_conditional_edges(
         "decide_next",
-        lambda s: s.get("next_action", END),
+        lambda s: s.next_action if s.next_action is not None else END,
         {
             "question_agent": "question_agent",
             "resume_agent": "resume_agent",
