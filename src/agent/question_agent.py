@@ -25,7 +25,11 @@ async def deduplicate_check(state: InterviewState, question_id: str) -> dict:
 
 def should_continue_followup(state: InterviewState) -> Literal["generate_followup", END]:
     from src.config import config
-    dev = state.evaluation_results.get(state.current_question_id, {}).get("deviation_score", 0)
+    # Get deviation_score from state.answers (dict of question_id -> Answer)
+    if state.current_question_id and state.current_question_id in state.answers:
+        dev = state.answers[state.current_question_id].deviation_score
+    else:
+        dev = 0
     depth = state.followup_depth
     if dev >= config.deviation_threshold and depth >= config.max_followup_depth:
         return END
