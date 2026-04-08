@@ -151,6 +151,7 @@ async def generate_followup(
         "followup_chain": state.followup_chain + [new_question_id],
     }
 
+@async_retryable(max_attempts=3)
 async def deduplicate_check(state: InterviewState, question_id: str) -> dict:
     from src.agent.base import create_review_voters
     voters = [
