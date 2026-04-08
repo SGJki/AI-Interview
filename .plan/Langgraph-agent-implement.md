@@ -1317,18 +1317,19 @@ async def review_evaluation(
 ) -> dict:
     """
     审查 EvaluateAgent 的评估结果
-    
+
     Args:
         state: InterviewState
         evaluation_result: EvaluateAgent 返回的评估结果
         standard_answer: 标准答案（如果有）
-        
+
     Returns:
-        审查结果: {passed: bool, failures: list[str], retry_target: str}
+        审查结果: {passed: bool, failures: list[str]}
+        注意: 不直接决定反馈目标，由 Orchestrator 决定
     """
     question = state.current_question.content if state.current_question else ""
     user_answer = state.answers.get(state.current_question_id, Answer("","")).content if state.current_question_id else ""
-    
+
     # 创建 3 个投票器
     voters = [
         # Voter 1: 评估是否基于 Q+A
@@ -1344,19 +1345,24 @@ async def review_evaluation(
             question, evaluation_result, standard_answer
         ) if standard_answer else True,
     ]
-    
+
     voter = create_review_voters(voters)
     passed, failures = await voter.vote(evaluation_result)
-    
-    # 确定反馈环目标
-    retry_target = "evaluate"  # 默认重试 EvaluateAgent
-    if "standard_answer" in str(failures).lower():
-        retry_target = "knowledge"  # 标准答案问题，回调到 KnowledgeAgent
-    
+
+    # 审查失败原因供 Orchestrator 参考
+    failure_reasons = []
+    if not passed:
+        if "Voter 0" in failures:
+            failure_reasons.append("evaluation_not_based_on_qa")
+        if "Voter 1" in failures:
+            failure_reasons.append("evaluation_unreasonable")
+        if "Voter 2" in failures:
+            failure_reasons.append("standard_answer_mismatch")
+
     return {
         "review_passed": passed,
         "review_failures": failures,
-        "retry_target": retry_target,
+        "failure_reasons": failure_reasons,  # 供 Orchestrator 参考，决定反馈目标
     }
 
 def _check_evaluation_based_on_qa(question: str, user_answer: str, evaluation: dict) -> bool:
@@ -1367,8 +1373,6 @@ def _check_evaluation_based_on_qa(question: str, user_answer: str, evaluation: d
 def _check_evaluation_reasonableness(question: str, user_answer: str, evaluation: dict) -> bool:
     """检查评估是否合理"""
     dev = evaluation.get("deviation_score", 0.5)
-    # 简单合理性检查：高分应该表示回答质量好
-    # TODO: 实现更复杂的 LLM 判断
     return 0 <= dev <= 1
 
 def _check_standard_answer_fit(question: str, evaluation: dict, standard_answer: str) -> bool:
@@ -1389,12 +1393,26 @@ def create_review_agent_graph() -> StateGraph:
 review_agent_graph = create_review_agent_graph()
 ```
 
-#### 2.6.5 反馈环
+#### 2.6.5 Orchestrator 反馈环决策
 
-| 失败原因 | 反馈目标 |
-|----------|----------|
-| 评估不合理 | EvaluateAgent 重新评估 |
-| 标准答案不契合 | KnowledgeAgent 重新查找标准答案 |
+ReviewAgent 只报告通过/失败，**由 Orchestrator 决定反馈目标**：
+
+```python
+def decide_feedback_target(state: InterviewState) -> str:
+    """
+    Orchestrator 根据 ReviewAgent 的 failure_reasons 决定反馈目标
+    """
+    failure_reasons = state.review_failure_reasons  # ReviewAgent 设置
+
+    if "evaluation_unreasonable" in failure_reasons:
+        return "evaluate"  # 评估不合理，重试 EvaluateAgent
+    elif "standard_answer_mismatch" in failure_reasons:
+        return "knowledge"  # 标准答案问题，重试 KnowledgeAgent
+    elif "evaluation_not_based_on_qa" in failure_reasons:
+        return "evaluate"  # 评估未基于 Q+A，重试 EvaluateAgent
+
+    return "evaluate"  # 默认重试 EvaluateAgent
+```
 
 ---
 
