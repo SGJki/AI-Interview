@@ -4,6 +4,9 @@ from typing import TypeVar, Generic, Callable, Any
 from dataclasses import dataclass
 from enum import Enum
 import asyncio
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class AgentPhase(str, Enum):
@@ -36,13 +39,14 @@ class ReviewVoter:
         At least 2 votes needed to pass.
         """
         results = []
-        for voter in self.voters:
+        for i, voter in enumerate(self.voters):
             try:
                 if asyncio.iscoroutinefunction(voter):
                     results.append(await voter(content))
                 else:
                     results.append(voter(content))
             except Exception as e:
+                logger.warning(f"Voter {i} raised exception: {e}")
                 results.append(False)
 
         passed_count = sum(results)
