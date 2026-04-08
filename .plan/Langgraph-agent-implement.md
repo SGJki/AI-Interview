@@ -1,6 +1,6 @@
 # AI-Interview LangGraph Agent LLM 集成实现规划
 
-**Problem solved**: 为 AI-Interview 项目实现 LangGraph Agent 的 LLM 集成，使 ResumeAgent、KnowledgeAgent、QuestionAgent、EvaluateAgent、FeedBackAgent 能够真正调用 ChatGLM 大模型，实现智能面试流程。
+**Problem solved**: 为 AI-Interview 项目实现 LangGraph Agent 的 LLM 集成，使 ResumeAgent、KnowledgeAgent、QuestionAgent、EvaluateAgent、FeedBackAgent、ReviewAgent 能够真正调用 ChatGLM 大模型，实现智能面试流程。
 
 **基于**: [langgraph-agent-orchestration.md](./langgraph-agent-orchestration.md)
 
@@ -23,24 +23,19 @@
 │                        LangGraph State                              │
 │                    (InterviewState / InterviewContext)               │
 └─────────────────────────────────────────────────────────────────────┘
-                    ▲                    │                    ▲
-                    │                    │                    │
-                    │    ┌───────────────┼───────────────┐    │
-                    │    │               │               │    │
-                ┌───┴────┴───┐   ┌──────┴──────┐   ┌───┴────┴───┐
-                │ResumeAgent │   │KnowledgeAgent│   │QuestionAgent│
-                └─────────────┘   └──────────────┘   └─────────────┘
-                        │                   │               │
-                        └───────────────────┼───────────────┘
-                                            │
-                                    ┌───────▼───────┐
-                                    │InterviewLLMService│
-                                    └───────┬───────┘
-                                            │
-                                    ┌───────▼───────┐
-                                    │  LangChain     │
-                                    │  ChatGLM Client│
-                                    └───────────────┘
+        ▲                    │                    ▲                    │
+        │                    │                    │                    │
+┌───────┴───────┐   ┌───────┴───────┐   ┌───────┴───────┐   ┌───────┴───────┐
+│  ResumeAgent  │   │KnowledgeAgent │   │ QuestionAgent│   │  FeedBackAgent │
+└───────────────┘   └───────────────┘   └───────────────┘   └───────────────┘
+                                                       │                   
+                                              ┌───────┴───────┐           
+                                              │ EvaluateAgent │           
+                                              └───────┬───────┘           
+                                                      │                   
+                                              ┌───────┴───────┐           
+                                              │  ReviewAgent  │           
+                                              └───────────────┘           
 ```
 
 ### 1.3 现有代码分析
@@ -57,6 +52,7 @@
 - `src/agent/question_agent.py`: QuestionAgent
 - `src/agent/evaluate_agent.py`: EvaluateAgent
 - `src/agent/feedback_agent.py`: FeedBackAgent
+- `src/agent/review_agent.py`: ReviewAgent (第6个Agent，负责审查其他Agent的输出)
 
 ---
 
@@ -192,7 +188,8 @@ async def fetch_old_resume(state: InterviewState, resume_id: str) -> dict:
 - 职责列表随机化
 - 存储到向量数据库
 - 获取当前职责
-- 查找标准答案
+- **查找标准答案（核心功能）**
+- **将标准答案传给 EvaluateAgent**
 
 #### 2.2.2 状态读写
 
@@ -200,11 +197,47 @@ async def fetch_old_resume(state: InterviewState, resume_id: str) -> dict:
 - `state.responsibilities`: 职责元组
 - `state.current_responsibility_index`: 当前职责索引
 - `state.series_responsibility_map`: 系列职责映射
+- `state.mastered_questions`: 已掌握的问题（用于查找标准答案）
 
 **写入**:
 - `state.responsibilities`: 随机后的职责
 - `state.series_responsibility_map`: 职责分配映射
 - `state.current_responsibility_index`: 更新索引
+- `state.current_standard_answer`: **标准答案（传给 EvaluateAgent）**
+
+#### 2.2.3 标准答案查找流程
+
+```
+QuestionAgent 生成问题
+       ↓
+KnowledgeAgent.find_standard_answer
+       ↓
+┌─ 从 mastered_questions 查找（dev >= 0.8 的问答对）
+│      ↓
+│  语义相似度 + 关键词检验
+│      ↓
+│  ┌─ 找到候选 ──→ ReviewAgent 审查 ──┐
+│  │                                    │
+│  │                           通过 ──→ 标准答案传给 EvaluateAgent
+│  │                           失败 ──→ 重试一次（再审查）
+│  │                                    │
+│  │                                    └──→ 失败 ──→ 告知"无标准答案"
+│  └─ 未找到 ──→ 直接告知"无标准答案"
+```
+
+#### 2.2.4 与 EvaluateAgent 的交互
+
+```
+KnowledgeAgent
+    │
+    └──► 设置 state.current_standard_answer
+              │
+              ↓
+         EvaluateAgent
+              │ 读取 state.current_standard_answer
+              │ 决定调用 evaluate_with_standard 或 evaluate_without_standard
+              ↓
+         ReviewAgent 审查评估结果
 
 #### 2.2.3 实现代码
 
@@ -719,9 +752,10 @@ async def generate_initial_stream(
 ### 2.4 EvaluateAgent LLM 集成
 
 #### 2.4.1 职责
-- 使用标准答案评估
+- 使用标准答案评估（标准答案由 KnowledgeAgent 传入）
 - 无标准答案评估
 - 计算偏差分数
+- **输出给 ReviewAgent 进行审查**
 
 #### 2.4.2 Prompt 模板
 
@@ -738,11 +772,25 @@ Role: AI面试评估专家
 - `state.current_question`: 当前问题
 - `state.answers`: 回答记录字典
 - `state.series_history`: 系列历史
+- `state.current_standard_answer`: **标准答案（由 KnowledgeAgent 设置）**
 
 **写入**:
 - `state.answers`: 添加新回答
-- `state.evaluation_results`: 评估结果（新增字段）
+- `state.evaluation_results`: 评估结果
 - `state.error_count`: 更新错误计数
+
+#### 2.4.4 流程
+
+```
+KnowledgeAgent.find_standard_answer → 标准答案存入 state.current_standard_answer
+                                    ↓
+                    EvaluateAgent.evaluate_with_standard / evaluate_without_standard
+                                    ↓
+                                    ReviewAgent.review_evaluation
+                                    ↓
+                         ┌─ 通过 ──→ 输出给用户
+                         │
+                         └─ 不通过 ──→ 反馈环
 
 #### 2.4.4 实现代码
 
@@ -1204,6 +1252,149 @@ feedback_agent_graph = create_feedback_agent_graph()
 | LLM 超时 | 使用模板生成反馈 |
 | 空响应 | 使用默认鼓励语 |
 | API 错误 | 使用 fallback 反馈 |
+
+---
+
+### 2.6 ReviewAgent LLM 集成
+
+#### 2.6.1 职责
+- 审查其他 Agent 的输出（3-instance 投票机制）
+- 评估通过条件：至少 2 个实例通过
+- 失败时触发反馈环
+
+#### 2.6.2 审查流程
+
+```
+EvaluateAgent 输出
+       │
+       ▼
+ReviewAgent.review_evaluation
+       │
+       ├──► Voter 1: 评估是否基于 Q+A
+       ├──► Voter 2: 评估是否合理（deviation_score 与回答质量匹配）
+       └──► Voter 3: 标准答案契合度检查（仅当有标准答案时）
+       
+       │
+       ├──► [通过 (>=2 pass)] ──► 输出给用户
+       │
+       └──► [不通过] ──► 反馈环
+                     │
+                     ├──► EvaluateAgent 重新评估
+                     └──► KnowledgeAgent 重新查找标准答案
+```
+
+#### 2.6.3 审查标准
+
+| 审核项 | 标准 |
+|--------|------|
+| 评估基于 Q+A | 评估内容与问题和回答相关 |
+| 评估合理 | deviation_score 与回答质量匹配 |
+| 标准答案契合 | 仅当有标准答案时：标准答案与问题契合 |
+
+#### 2.6.4 实现代码
+
+```python
+# src/agent/review_agent.py
+
+from typing import Literal
+from langgraph.graph import StateGraph
+from src.agent.state import InterviewState
+from src.agent.base import ReviewVoter, create_review_voters
+
+# 全局 LLM 服务实例
+_llm_service: InterviewLLMService | None = None
+
+def get_llm_service() -> InterviewLLMService:
+    global _llm_service
+    if _llm_service is None:
+        _llm_service = InterviewLLMService()
+    return _llm_service
+
+async def review_evaluation(
+    state: InterviewState,
+    evaluation_result: dict,
+    standard_answer: str | None
+) -> dict:
+    """
+    审查 EvaluateAgent 的评估结果
+    
+    Args:
+        state: InterviewState
+        evaluation_result: EvaluateAgent 返回的评估结果
+        standard_answer: 标准答案（如果有）
+        
+    Returns:
+        审查结果: {passed: bool, failures: list[str], retry_target: str}
+    """
+    question = state.current_question.content if state.current_question else ""
+    user_answer = state.answers.get(state.current_question_id, Answer("","")).content if state.current_question_id else ""
+    
+    # 创建 3 个投票器
+    voters = [
+        # Voter 1: 评估是否基于 Q+A
+        lambda e: _check_evaluation_based_on_qa(
+            question, user_answer, evaluation_result
+        ),
+        # Voter 2: 评估是否合理
+        lambda e: _check_evaluation_reasonableness(
+            question, user_answer, evaluation_result
+        ),
+        # Voter 3: 标准答案契合度（仅当有标准答案时）
+        lambda e: _check_standard_answer_fit(
+            question, evaluation_result, standard_answer
+        ) if standard_answer else True,
+    ]
+    
+    voter = create_review_voters(voters)
+    passed, failures = await voter.vote(evaluation_result)
+    
+    # 确定反馈环目标
+    retry_target = "evaluate"  # 默认重试 EvaluateAgent
+    if "standard_answer" in str(failures).lower():
+        retry_target = "knowledge"  # 标准答案问题，回调到 KnowledgeAgent
+    
+    return {
+        "review_passed": passed,
+        "review_failures": failures,
+        "retry_target": retry_target,
+    }
+
+def _check_evaluation_based_on_qa(question: str, user_answer: str, evaluation: dict) -> bool:
+    """检查评估是否基于问答内容"""
+    # TODO: 实现 LLM 调用判断评估是否与 Q+A 相关
+    return True
+
+def _check_evaluation_reasonableness(question: str, user_answer: str, evaluation: dict) -> bool:
+    """检查评估是否合理"""
+    dev = evaluation.get("deviation_score", 0.5)
+    # 简单合理性检查：高分应该表示回答质量好
+    # TODO: 实现更复杂的 LLM 判断
+    return 0 <= dev <= 1
+
+def _check_standard_answer_fit(question: str, evaluation: dict, standard_answer: str) -> bool:
+    """检查标准答案与问题是否契合"""
+    # TODO: 实现语义相似度检查
+    return True
+
+def create_review_agent_graph() -> StateGraph:
+    """
+    创建 ReviewAgent 子图
+    """
+    graph = StateGraph(InterviewState)
+    graph.add_node("review_evaluation", review_evaluation)
+    graph.set_entry_point("review_evaluation")
+    graph.add_edge("review_evaluation", "__end__")
+    return graph.compile()
+
+review_agent_graph = create_review_agent_graph()
+```
+
+#### 2.6.5 反馈环
+
+| 失败原因 | 反馈目标 |
+|----------|----------|
+| 评估不合理 | EvaluateAgent 重新评估 |
+| 标准答案不契合 | KnowledgeAgent 重新查找标准答案 |
 
 ---
 
