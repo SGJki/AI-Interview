@@ -112,5 +112,133 @@ class TestFeedBackAgentFunctions:
         assert len(params) == 1
 
 
+@pytest.mark.asyncio
+async def test_generate_correction_success():
+    """测试生成纠正反馈"""
+    from unittest.mock import AsyncMock, patch
+    from src.agent.feedback_agent import get_llm_service
+    from src.agent.state import Feedback, FeedbackType
+
+    state = InterviewState(session_id="test", resume_id="r1", current_question_id="q_test")
+
+    with patch("src.agent.feedback_agent.get_llm_service") as mock:
+        service = AsyncMock()
+        service.generate_feedback = AsyncMock(return_value=Feedback(
+            question_id="q_test",
+            content="正确答案是...",
+            is_correct=False,
+            guidance="建议回顾相关技术原理",
+            feedback_type=FeedbackType.CORRECTION,
+        ))
+        mock.return_value = service
+
+        result = await generate_correction(
+            state,
+            question="什么是 Redis?",
+            user_answer="Redis 是一个数据库",
+            evaluation={"deviation_score": 0.2, "is_correct": False}
+        )
+
+        assert "last_feedback" in result
+        assert result["last_feedback"].feedback_type == FeedbackType.CORRECTION
+        assert result["last_feedback"].is_correct is False
+
+
+@pytest.mark.asyncio
+async def test_generate_guidance_success():
+    """测试生成引导反馈"""
+    from unittest.mock import AsyncMock, patch
+    from src.agent.feedback_agent import get_llm_service
+    from src.agent.state import Feedback, FeedbackType
+
+    state = InterviewState(session_id="test", resume_id="r1", current_question_id="q_test2")
+
+    with patch("src.agent.feedback_agent.get_llm_service") as mock:
+        service = AsyncMock()
+        service.generate_feedback = AsyncMock(return_value=Feedback(
+            question_id="q_test2",
+            content="你的回答方向正确，但可以更深入一些...",
+            is_correct=True,
+            guidance="请尝试从项目实践角度更详细地说明",
+            feedback_type=FeedbackType.GUIDANCE,
+        ))
+        mock.return_value = service
+
+        result = await generate_guidance(
+            state,
+            question="介绍一下 Redis 的持久化机制",
+            user_answer="Redis 可以做 RDB 和 AOF 持久化",
+            evaluation={"deviation_score": 0.5, "is_correct": True}
+        )
+
+        assert "last_feedback" in result
+        assert result["last_feedback"].feedback_type == FeedbackType.GUIDANCE
+        assert result["last_feedback"].is_correct is True
+
+
+@pytest.mark.asyncio
+async def test_generate_comment_success():
+    """测试生成评论反馈"""
+    from unittest.mock import AsyncMock, patch
+    from src.agent.feedback_agent import get_llm_service
+    from src.agent.state import Feedback, FeedbackType
+
+    state = InterviewState(session_id="test", resume_id="r1", current_question_id="q_test3")
+
+    with patch("src.agent.feedback_agent.get_llm_service") as mock:
+        service = AsyncMock()
+        service.generate_feedback = AsyncMock(return_value=Feedback(
+            question_id="q_test3",
+            content="回答得很好！继续深入。",
+            is_correct=True,
+            guidance=None,
+            feedback_type=FeedbackType.COMMENT,
+        ))
+        mock.return_value = service
+
+        result = await generate_comment(
+            state,
+            question="你使用过哪些缓存方案？",
+            user_answer="我主要使用 Redis 作为缓存，配合本地缓存一起使用",
+            evaluation={"deviation_score": 0.8, "is_correct": True}
+        )
+
+        assert "last_feedback" in result
+        assert result["last_feedback"].feedback_type == FeedbackType.COMMENT
+        assert result["last_feedback"].is_correct is True
+
+
+@pytest.mark.asyncio
+async def test_generate_correction_updates_feedbacks_dict():
+    """测试 generate_correction 更新 feedbacks 字典"""
+    from unittest.mock import AsyncMock, patch
+    from src.agent.feedback_agent import get_llm_service
+    from src.agent.state import Feedback, FeedbackType
+
+    state = InterviewState(session_id="test", resume_id="r1", current_question_id="q_test7")
+
+    with patch("src.agent.feedback_agent.get_llm_service") as mock:
+        service = AsyncMock()
+        service.generate_feedback = AsyncMock(return_value=Feedback(
+            question_id="q_test7",
+            content="纠错内容",
+            is_correct=False,
+            guidance="建议回顾原理",
+            feedback_type=FeedbackType.CORRECTION,
+        ))
+        mock.return_value = service
+
+        result = await generate_correction(
+            state,
+            question="什么是 Redis?",
+            user_answer="Redis 是一个数据库",
+            evaluation={"deviation_score": 0.1, "is_correct": False}
+        )
+
+        assert "feedbacks" in result
+        assert "q_test7" in result["feedbacks"]
+        assert result["feedbacks"]["q_test7"].feedback_type == FeedbackType.CORRECTION
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
