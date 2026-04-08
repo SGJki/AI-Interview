@@ -1,25 +1,12 @@
 """ReviewAgent - Review evaluation results with 3-instance voting."""
 import logging
-from typing import Optional
 
 from langgraph.graph import StateGraph
 
 from src.agent.base import ReviewVoter, create_review_voters
 from src.agent.state import InterviewState
-from src.services.llm_service import InterviewLLMService
 
 logger = logging.getLogger(__name__)
-
-# Global LLM service instance
-_llm_service: Optional[InterviewLLMService] = None
-
-
-def get_llm_service() -> InterviewLLMService:
-    """Get or create the global LLM service instance."""
-    global _llm_service
-    if _llm_service is None:
-        _llm_service = InterviewLLMService()
-    return _llm_service
 
 
 async def review_evaluation(
@@ -84,7 +71,7 @@ def _check_evaluation_reasonableness(question: str, user_answer: str, evaluation
     return 0 <= dev <= 1
 
 
-def _check_standard_answer_fit(question: str, evaluation: dict, standard_answer: str) -> bool:
+def _check_standard_answer_fit(question: str, evaluation: dict, standard_answer: str | None) -> bool:
     """检查标准答案与问题是否契合"""
     # TODO: 实现语义相似度检查
     return True
