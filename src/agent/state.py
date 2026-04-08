@@ -5,7 +5,7 @@ Interview Agent State Definitions - 短期记忆 (LangGraph State)
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Optional, Literal
 
 
 class InterviewMode(str, Enum):
@@ -146,6 +146,18 @@ class InterviewState:
     # 元数据
     created_at: datetime = field(default_factory=datetime.now)
     error_count: int = 0  # 当前系列连续错误次数
+
+    # Series state tracking
+    asked_logical_questions: set[str] = field(default_factory=set)  # dev >= 0.8 后加入
+    mastered_questions: dict[str, dict] = field(default_factory=dict)  # question_id -> {answer, standard_answer}
+    all_responsibilities_used: bool = False
+
+    # Review info
+    review_retry_count: int = 0
+    last_review_feedback: Optional[str] = None
+
+    # Phase tracking
+    phase: Literal["init", "warmup", "initial", "followup", "final_feedback"] = "init"
 
 
 @dataclass

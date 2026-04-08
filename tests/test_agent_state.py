@@ -35,6 +35,45 @@ class TestInterviewState:
         assert len(state.answers) == 0
         assert state.interview_mode == InterviewMode.FREE
 
+    def test_interview_state_new_fields_default_values(self):
+        """测试 InterviewState 新字段默认值"""
+        state = InterviewState(
+            session_id="test-session-123",
+            resume_id="resume-456"
+        )
+
+        # Series state tracking
+        assert state.asked_logical_questions == set()
+        assert state.mastered_questions == {}
+        assert state.all_responsibilities_used is False
+
+        # Review info
+        assert state.review_retry_count == 0
+        assert state.last_review_feedback is None
+
+        # Phase tracking
+        assert state.phase == "init"
+
+    def test_interview_state_new_fields_with_values(self):
+        """测试 InterviewState 新字段赋值"""
+        state = InterviewState(
+            session_id="test-session-123",
+            resume_id="resume-456",
+            asked_logical_questions={"q1", "q2"},
+            mastered_questions={"q1": {"answer": "a1", "standard_answer": "s1"}},
+            all_responsibilities_used=True,
+            review_retry_count=2,
+            last_review_feedback="Good improvement",
+            phase="followup"
+        )
+
+        assert state.asked_logical_questions == {"q1", "q2"}
+        assert state.mastered_questions == {"q1": {"answer": "a1", "standard_answer": "s1"}}
+        assert state.all_responsibilities_used is True
+        assert state.review_retry_count == 2
+        assert state.last_review_feedback == "Good improvement"
+        assert state.phase == "followup"
+
     def test_interview_state_immutable(self):
         """测试 InterviewState 不可变性"""
         state = InterviewState(
