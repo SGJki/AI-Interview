@@ -15,6 +15,24 @@ from typing import Optional
 # Global config cache
 _config: Optional[dict] = None
 
+# Simple config object for backwards compatibility
+class _SimpleConfig:
+    """Simple config object providing direct attribute access."""
+    def __init__(self, config_dict: dict):
+        self._config = config_dict
+        interview = config_dict.get("interview", {})
+        self.max_series: int = interview.get("default_max_series", 5)
+        self.error_threshold: int = interview.get("default_error_threshold", 2)
+        self.max_followup_depth: int = interview.get("max_followup_depth", 3)
+        self.deviation_threshold: float = 0.8
+
+    def get(self, key: str, default=None):
+        return self._config.get(key, default)
+
+# Global config instance
+_config_instance = _load_config()
+config = _SimpleConfig(_config_instance) if _config_instance else None
+
 
 def _expand_env_vars(value: str) -> str:
     """Expand environment variables in ${VAR_NAME} format"""
