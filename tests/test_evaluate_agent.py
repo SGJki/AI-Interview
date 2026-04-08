@@ -3,13 +3,14 @@ Tests for EvaluateAgent - Answer evaluation subgraph
 """
 
 import pytest
+from unittest.mock import AsyncMock, patch
 from src.agent.evaluate_agent import (
     create_evaluate_agent_graph,
     evaluate_agent_graph,
     evaluate_with_standard,
     evaluate_without_standard,
 )
-from src.agent.state import InterviewState
+from src.agent.state import InterviewState, Answer
 
 
 class TestEvaluateAgentGraph:
@@ -77,6 +78,80 @@ class TestEvaluateAgentFunctions:
         assert "state" in params
         assert "question" in params
         assert "user_answer" in params
+
+
+@pytest.mark.asyncio
+async def test_evaluate_with_standard_success():
+    """测试使用标准答案评估"""
+    state = InterviewState(session_id="test", resume_id="r1", current_question_id="q_test")
+
+    with patch("src.agent.evaluate_agent.get_llm_service") as mock:
+        service = AsyncMock()
+        service.evaluate_answer = AsyncMock(return_value={
+            "deviation_score": 0.8,
+            "is_correct": True,
+            "key_points": ["回答完整"],
+            "suggestions": [],
+        })
+        mock.return_value = service
+
+        result = await evaluate_with_standard(
+            state,
+            question="什么是 Redis?",
+            user_answer="Redis 是一个内存数据库",
+            standard_answer="Redis 是一个开源的内存数据结构存储...",
+        )
+
+        assert "current_answer" in result
+        assert result["current_answer"].deviation_score == 0.8
+
+
+@pytest.mark.asyncio
+async def test_evaluate_without_standard_success():
+    """测试无标准答案评估"""
+    state = InterviewState(session_id="test", resume_id="r1", current_question_id="q_test2")
+
+    with patch("src.agent.evaluate_agent.get_llm_service") as mock:
+        service = AsyncMock()
+        service.evaluate_answer = AsyncMock(return_value={
+            "deviation_score": 0.6,
+            "is_correct": True,
+            "key_points": ["理解正确"],
+            "suggestions": ["补充细节"],
+        })
+        mock.return_value = service
+
+        result = await evaluate_without_standard(
+            state,
+            question="介绍一下你自己",
+            user_answer="我叫张三，有三年开发经验",
+        )
+
+        assert "current_answer" in result
+        assert result["current_answer"].deviation_score == 0.6
+
+
+@pytest.mark.asyncio
+async def test_evaluate_with_standard_error_handling():
+    """测试评估失败时的错误处理"""
+    state = InterviewState(session_id="test", resume_id="r1", current_question_id="q_test3")
+
+    with patch("src.agent.evaluate_agent.get_llm_service") as mock:
+        service = AsyncMock()
+        service.evaluate_answer = AsyncMock(side_effect=Exception("LLM error"))
+        mock.return_value = service
+
+        result = await evaluate_with_standard(
+            state,
+            question="什么是 Redis?",
+            user_answer="Redis 是一个内存数据库",
+            standard_answer="Redis 是一个开源的内存数据结构存储...",
+        )
+
+        # Should return default values on error
+        assert "current_answer" in result
+        assert result["current_answer"].deviation_score == 0.5
+        assert result["error_count"] == 0  # is_correct=True by default on error
 
 
 if __name__ == "__main__":
