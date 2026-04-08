@@ -3,6 +3,7 @@ from abc import ABC, abstractmethod
 from typing import TypeVar, Generic, Callable, Any
 from dataclasses import dataclass
 from enum import Enum
+import asyncio
 
 
 class AgentPhase(str, Enum):
@@ -37,7 +38,10 @@ class ReviewVoter:
         results = []
         for voter in self.voters:
             try:
-                results.append(await voter(content))
+                if asyncio.iscoroutinefunction(voter):
+                    results.append(await voter(content))
+                else:
+                    results.append(voter(content))
             except Exception as e:
                 results.append(False)
 
