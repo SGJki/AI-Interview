@@ -3,6 +3,7 @@ Tests for ResumeAgent - Resume parsing and storage subgraph
 """
 
 import pytest
+from unittest.mock import AsyncMock, patch
 from src.agent.resume_agent import (
     create_resume_agent_graph,
     resume_agent_graph,
@@ -76,6 +77,29 @@ class TestResumeAgentFunctions:
         params = list(sig.parameters.keys())
         assert "state" in params
         assert "resume_id" in params
+
+
+@pytest.mark.asyncio
+async def test_parse_resume_success():
+    """Test parse_resume successfully parses resume with LLM"""
+    state = InterviewState(session_id="test", resume_id="r1")
+
+    with patch('src.agent.resume_agent.get_llm_service') as mock:
+        service = AsyncMock()
+        service.extract_resume_info = AsyncMock(return_value={
+            "skills": ["Python"],
+            "projects": [{"name": "Test", "responsibilities": ["开发 API"]}],
+            "experience": [],
+        })
+        mock.return_value = service
+
+        result = await parse_resume(state, "测试简历内容")
+
+        assert result["resume_context"] == "测试简历内容"
+        assert len(result["responsibilities"]) == 1
+        assert result["responsibilities"][0] == "开发 API"
+        assert "resume_parsed" in result
+        assert result["resume_parsed"]["skills"] == ["Python"]
 
 
 if __name__ == "__main__":
