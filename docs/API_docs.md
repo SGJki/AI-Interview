@@ -69,13 +69,26 @@ uv run pytest tests/ -v
                               │
 ┌─────────────────────────────────────────────────────────────┐
 │                    Agent Layer (LangGraph)                  │
-│  State → Nodes (load_context, generate_question, etc.)     │
+│           Main Orchestrator + 5 Agent Subgraphs            │
+│  ResumeAgent │ KnowledgeAgent │ QuestionAgent               │
+│  EvaluateAgent │ FeedBackAgent                              │
 └─────────────────────────────────────────────────────────────┘
                               │
 ┌─────────────────────────────────────────────────────────────┐
 │                      Memory Layer                           │
 │  LangGraph State │ Redis │ PostgreSQL + pgvector           │
 └─────────────────────────────────────────────────────────────┘
+```
+
+### Multi-Agent Architecture
+
+```
+orchestrator_graph
+├── resume_agent_graph     → parse_resume, fetch_old_resume
+├── knowledge_agent_graph  → shuffle_responsibilities, store_to_vector_db, fetch_responsibility
+├── question_agent_graph   → generate_warmup, generate_initial, generate_followup, deduplicate_check
+├── evaluate_agent_graph   → evaluate_with_standard, evaluate_without_standard
+└── feedback_agent_graph   → generate_correction, generate_guidance, generate_comment
 ```
 
 ### Three-Layer Memory
@@ -549,14 +562,30 @@ interview:lock:{session_id}       → Distributed lock
 ```
 src/
 ├── agent/
-│   ├── state.py       # InterviewState, Question, Answer, Feedback
-│   └── graph.py       # LangGraph definition
+│   ├── __init__.py           # Exports all agent graphs
+│   ├── state.py              # InterviewState, Question, Answer, Feedback
+│   ├── base.py               # AgentPhase, AgentResult, ReviewVoter
+│   ├── orchestrator.py       # Main orchestrator graph
+│   ├── resume_agent.py       # ResumeAgent subgraph
+│   ├── knowledge_agent.py    # KnowledgeAgent subgraph
+│   ├── question_agent.py      # QuestionAgent subgraph
+│   ├── evaluate_agent.py     # EvaluateAgent subgraph
+│   └── feedback_agent.py      # FeedBackAgent subgraph
 ├── api/
 │   ├── interview.py   # /interview/* endpoints
 │   ├── training.py    # /train/* endpoints
 │   ├── knowledge.py   # /knowledge/* endpoints
 │   ├── models.py      # Pydantic request/response models
 │   └── routers.py     # Router configuration
+├── config/
+│   ├── __init__.py
+│   └── interview_config.py  # InterviewConfig dataclass
+├── db/
+│   ├── __init__.py
+│   ├── models.py          # SQLAlchemy models
+│   ├── database.py        # Async DB connection
+│   ├── vector_store.py    # pgvector operations
+│   └── redis_client.py    # Redis queue/hash operations
 ├── tools/
 │   ├── rag_tools.py           # RAG retrieval
 │   ├── rag_enhancements.py    # MultiVector, Hybrid, Reranker
@@ -568,9 +597,5 @@ src/
 │   ├── resume_parser.py        # Resume parsing
 │   ├── training_selector.py    # Skill selection
 │   └── training_knowledge_matcher.py
-├── db/
-│   ├── models.py       # SQLAlchemy models
-│   ├── database.py     # Async DB connection
-│   └── vector_store.py # pgvector operations
 └── dao/                # Data Access Objects
 ```

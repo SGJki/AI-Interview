@@ -179,18 +179,37 @@ curl http://localhost:8000/health
 | 文件 | 说明 |
 |------|------|
 | `state.py` | InterviewState, Question, Answer, Feedback 数据结构 |
-| `graph.py` | LangGraph 定义，包含 8 个节点 |
+| `orchestrator.py` | Main orchestrator graph - composes all agents |
+| `base.py` | AgentPhase, AgentResult, ReviewVoter base classes |
+| `resume_agent.py` | ResumeAgent subgraph - Resume parsing and storage |
+| `knowledge_agent.py` | KnowledgeAgent subgraph - Knowledge base and responsibility management |
+| `question_agent.py` | QuestionAgent subgraph - Question generation and deduplication |
+| `evaluate_agent.py` | EvaluateAgent subgraph - Answer evaluation |
+| `feedback_agent.py` | FeedBackAgent subgraph - Feedback generation |
 
-**LangGraph 节点:**
+**Multi-Agent Architecture:**
 
-- `load_context` - 加载简历和 RAG 知识
-- `generate_question` - 生成问题
-- `evaluate_answer` - 评估回答偏差度
-- `generate_feedback` - 生成反馈
-- `generate_followup` - 生成追问
-- `check_series_complete` - 检查系列是否完成
-- `switch_series` - 切换系列
-- `end_interview` - 结束面试
+```
+Main Orchestrator (orchestrator_graph)
+├── ResumeAgent (resume_agent_graph)
+│   └── parse_resume, fetch_old_resume
+├── KnowledgeAgent (knowledge_agent_graph)
+│   └── shuffle_responsibilities, store_to_vector_db, fetch_responsibility, find_standard_answer
+├── QuestionAgent (question_agent_graph)
+│   └── generate_warmup, generate_initial, generate_followup, deduplicate_check
+├── EvaluateAgent (evaluate_agent_graph)
+│   └── evaluate_with_standard, evaluate_without_standard
+└── FeedBackAgent (feedback_agent_graph)
+    └── generate_correction, generate_guidance, generate_comment, generate_fallback_feedback
+```
+
+**InterviewState new fields:**
+- `asked_logical_questions: set[str]` - Questions with deviation >= 0.8
+- `mastered_questions: dict[str, dict]` - question_id -> {answer, standard_answer}
+- `all_responsibilities_used: bool` - All responsibilities exhausted
+- `review_retry_count: int` - Review retry counter
+- `last_review_feedback: Optional[str]` - Last review feedback
+- `phase: Literal["init", "warmup", "initial", "followup", "final_feedback"]` - Current phase
 
 ### RAG 工具 (src/tools/)
 
