@@ -4,8 +4,11 @@ LLM Service for AI Interview Agent
 提供面试相关任务的 LLM 服务：问题生成、回答评估、反馈生成、追问生成
 """
 
+import logging
 import json
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 from src.llm.client import invoke_llm, invoke_llm_stream
 from src.llm.prompts import (
@@ -392,8 +395,21 @@ class InterviewLLMService:
                 temperature=0.3,
             )
 
-            return json.loads(result)
-        except json.JSONDecodeError:
+            parsed = json.loads(result)
+
+            # Validate structure
+            if not isinstance(parsed, dict):
+                logger.warning("LLM returned non-dict: %s", type(parsed))
+                return {"skills": [], "projects": [], "experience": []}
+
+            return {
+                "skills": parsed.get("skills", []),
+                "projects": parsed.get("projects", []),
+                "experience": parsed.get("experience", []),
+            }
+        except json.JSONDecodeError as e:
+            logger.error("JSON decode error in extract_resume_info: %s", e)
             return {"skills": [], "projects": [], "experience": []}
-        except Exception:
+        except Exception as e:
+            logger.error("Error in extract_resume_info: %s", e)
             return {"skills": [], "projects": [], "experience": []}
