@@ -70,5 +70,18 @@ class RedisClient:
                 json.dumps({"agent": agent, **info})
             )
 
+    # Pub/Sub operations
+    async def publish(self, channel: str, message: str) -> None:
+        """Publish a message to a channel."""
+        client = await self.get_client()
+        await client.publish(channel, message)
+
+    def subscribe(self, channel: str) -> redis.client.PubSub:
+        """Subscribe to a channel and return a PubSub object."""
+        client = redis.from_url(self.url)
+        pubsub = client.pubsub()
+        pubsub.subscribe(channel)
+        return pubsub
+
 
 redis_client = RedisClient()
