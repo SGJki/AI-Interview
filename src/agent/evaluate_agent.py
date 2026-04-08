@@ -131,7 +131,7 @@ async def evaluate_without_standard(
     }
 
 
-def create_evaluate_agent_graph() -> StateGraph:
+def create_evaluate_agent_graph() -> "CompiledStateGraph":
     graph = StateGraph(InterviewState)
     graph.add_node("evaluate_with_standard", evaluate_with_standard)
     graph.add_node("evaluate_without_standard", evaluate_without_standard)

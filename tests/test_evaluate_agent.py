@@ -10,7 +10,7 @@ from src.agent.evaluate_agent import (
     evaluate_with_standard,
     evaluate_without_standard,
 )
-from src.agent.state import InterviewState, Answer
+from src.agent.state import InterviewState
 
 
 class TestEvaluateAgentGraph:
