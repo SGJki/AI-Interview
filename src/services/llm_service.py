@@ -14,6 +14,7 @@ from src.llm.prompts import (
     FEEDBACK_GENERATION_PROMPT,
     FOLLOWUP_QUESTION_PROMPT,
     INTERVIEW_SYSTEM_PROMPT,
+    RESUME_EXTRACTION_PROMPT,
 )
 from src.services.embedding_service import compute_similarity
 from src.agent.state import Feedback, FeedbackType, Question, QuestionType
@@ -369,3 +370,30 @@ class InterviewLLMService:
     def clear_history(self):
         """清空对话历史"""
         self.conversation_history = []
+
+    async def extract_resume_info(self, resume_content: str) -> dict:
+        """
+        提取简历信息
+
+        Args:
+            resume_content: 简历文本
+
+        Returns:
+            解析后的简历结构: {skills: [], projects: [], experience: []}
+        """
+        prompt = RESUME_EXTRACTION_PROMPT.format(
+            resume_content=resume_content,
+        )
+
+        try:
+            result = await invoke_llm(
+                system_prompt="你是一个专业的简历解析专家。",
+                user_prompt=prompt,
+                temperature=0.3,
+            )
+
+            return json.loads(result)
+        except json.JSONDecodeError:
+            return {"skills": [], "projects": [], "experience": []}
+        except Exception:
+            return {"skills": [], "projects": [], "experience": []}
