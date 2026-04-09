@@ -5,6 +5,7 @@ Phase 2: Support for multiple series with independent question chains and state 
 """
 
 import pytest
+from unittest.mock import patch
 from dataclasses import dataclass, field, replace
 from src.agent.state import (
     InterviewMode,
@@ -288,29 +289,13 @@ class TestInterviewServiceMultiSeries:
         assert should_continue is True
 
 
-class TestGraphSeriesGeneration:
-    """Test multi-series graph node functions"""
+class TestDecideNextNode:
+    """Test orchestrator decide_next_node routing"""
 
-    def test_generate_question_uses_current_series(self):
-        """Test that generate_question uses current_series from state"""
-        from src.agent.graph import generate_question
-
-        state = InterviewState(
-            session_id="test-session",
-            resume_id="resume-123",
-            current_series=2
-        )
-
-        # Mock LLM
-        mock_llm = None
-
-        # Note: This test verifies the interface
-        # The actual implementation would use state.current_series
-        assert state.current_series == 2
-
-    def test_should_continue_interview_checks_series(self):
-        """Test that should_continue_interview checks current_series against max_series"""
-        from src.agent.graph import should_continue_interview
+    def test_decide_next_routes_to_end_interview_when_max_series_reached(self):
+        """Test that decide_next routes to end_interview when current_series >= max_series"""
+        from src.agent.orchestrator import decide_next_node
+        from src.config import config
 
         state = InterviewState(
             session_id="test-session",
@@ -318,13 +303,19 @@ class TestGraphSeriesGeneration:
             current_series=5
         )
 
-        result = should_continue_interview(state, max_series=5, user_end=False)
+        # Temporarily modify config for test
+        original_max_series = config.max_series
+        config.max_series = 5
+        try:
+            result = decide_next_node(state)
+            assert result == {"next_action": "end_interview"}
+        finally:
+            config.max_series = original_max_series
 
-        assert result == "end_interview"
-
-    def test_should_continue_interview_allows_continuation(self):
-        """Test that should_continue_interview allows continuation when series < max"""
-        from src.agent.graph import should_continue_interview
+    def test_decide_next_routes_to_question_agent_when_under_max_series(self):
+        """Test that decide_next routes to question_agent when series < max"""
+        from src.agent.orchestrator import decide_next_node
+        from src.config import config
 
         state = InterviewState(
             session_id="test-session",
@@ -332,9 +323,29 @@ class TestGraphSeriesGeneration:
             current_series=3
         )
 
-        result = should_continue_interview(state, max_series=5, user_end=False)
+        original_max_series = config.max_series
+        config.max_series = 5
+        try:
+            result = decide_next_node(state)
+            assert result == {"next_action": "question_agent"}
+        finally:
+            config.max_series = original_max_series
 
-        assert result == "generate_question"
+    def test_decide_next_routes_to_end_interview_when_user_end_requested(self):
+        """Test that decide_next routes to end_interview when user_end_requested"""
+        from src.agent.orchestrator import decide_next_node
+
+        # Create a state-like object with user_end_requested attribute
+        class MockState:
+            def __init__(self):
+                self.session_id = "test-session"
+                self.resume_id = "resume-123"
+                self.current_series = 3
+                self.user_end_requested = True
+
+        state = MockState()
+        result = decide_next_node(state)
+        assert result == {"next_action": "end_interview"}
 
 
 if __name__ == "__main__":
