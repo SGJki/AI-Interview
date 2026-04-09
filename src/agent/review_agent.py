@@ -3,7 +3,7 @@ import logging
 
 from langgraph.graph import StateGraph
 
-from src.agent.base import ReviewVoter, create_review_voters
+from src.agent.base import create_review_voters
 from src.agent.state import InterviewState
 from src.agent.prompts import REVIEW_EVALUATION_BASED_ON_QA
 from src.llm.client import invoke_llm
@@ -62,9 +62,9 @@ async def review_evaluation(state: InterviewState) -> dict:
     def voter_1(e, q=question, u=user_answer):
         return _check_evaluation_reasonableness(q, u, e)
 
-    # Voter 2: sync function that checks standard answer fit
-    def voter_2(e, q=question, sa=standard_answer):
-        return _check_standard_answer_fit(q, e, sa) if sa else True
+    # Voter 2: async function that checks standard answer fit
+    async def voter_2(e, q=question, sa=standard_answer):
+        return await _check_standard_answer_fit(q, e, sa) if sa else True
 
     voters = [voter_0, voter_1, voter_2]
 
@@ -108,10 +108,13 @@ def _check_evaluation_reasonableness(question: str, user_answer: str, evaluation
     return 0 <= dev <= 1
 
 
-def _check_standard_answer_fit(question: str, evaluation: dict, standard_answer: str | None) -> bool:
-    """检查标准答案与问题是否契合"""
-    # TODO: 实现语义相似度检查
-    return True
+async def _check_standard_answer_fit(question: str, evaluation: dict, standard_answer: str | None) -> bool:
+    """使用语义相似度检查标准答案与问题是否契合"""
+    if not standard_answer:
+        return True
+    from src.services.embedding_service import compute_similarity
+    score = await compute_similarity(question, standard_answer)
+    return score > 0.7
 
 
 def create_review_agent_graph() -> StateGraph:
