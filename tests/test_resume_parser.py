@@ -67,5 +67,40 @@ class TestExtractSkills:
         assert "Python" in skills or "Java" in skills or "Go" in skills
 
 
+class TestExtractWorkExperience:
+    """Test work experience extraction"""
+
+    def test_extract_work_experience_with_duration(self):
+        """测试提取工作经历包含时长"""
+        from src.services.resume_parser import _extract_work_experience
+
+        text = """
+        公司：字节跳动
+        职位：高级后端工程师
+        2020.03 - 2023.06
+        负责抖音推荐系统后端开发
+        """
+        experience = _extract_work_experience(text)
+
+        assert len(experience) > 0
+        assert experience[0].company == "字节跳动"
+        assert experience[0].position == "高级后端工程师"
+        assert "2020" in experience[0].duration
+
+    def test_extract_work_experience_no_duration(self):
+        """测试提取工作经历无时长"""
+        from src.services.resume_parser import _extract_work_experience
+
+        text = """
+        公司：某创业公司
+        职位：初级工程师
+        负责前端开发
+        """
+        experience = _extract_work_experience(text)
+
+        assert len(experience) > 0
+        assert experience[0].duration == ""
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

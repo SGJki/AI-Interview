@@ -5,10 +5,16 @@ Resume Parser Service for AI Interview Agent
 """
 
 import re
+import json
+import logging
 from dataclasses import dataclass, field
 from typing import Optional
 from pypdf import PdfReader
 from io import BytesIO
+
+from src.llm.client import invoke_llm
+
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -338,10 +344,15 @@ def _extract_work_experience(text: str) -> list[WorkExperience]:
         position_match = re.search(position_pattern, exp_text)
         position = position_match.group(1).strip() if position_match else "未知职位"
 
+        # 提取时长
+        duration_pattern = r"(\d{4}[./-]?\d{1,2}[月]?[./-]?\s*[-–~至]\s*\d{4}[./-]?\d{1,2}[月]?|近?\d{1,2}年)"
+        duration_match = re.search(duration_pattern, exp_text)
+        duration = duration_match.group(1).strip() if duration_match else ""
+
         experience.append(WorkExperience(
             company=company_text[:50],
             position=position,
-            duration="",  # TODO: 提取时长
+            duration=duration,
             description=exp_text[:200],
         ))
 
@@ -421,7 +432,7 @@ class ResumeParser:
 
             return "\n".join(text_parts)
         except Exception as e:
-            # TODO: 添加日志
+            logger.error("Failed to read PDF file %s: %s", file_path, e)
             return ""
 
     async def _read_pdf_bytes(self, pdf_bytes: bytes) -> str:
@@ -504,8 +515,51 @@ class LLMEnhancedResumeParser(ResumeParser):
         Returns:
             增强后的简历信息
         """
-        # TODO: 使用 LLM 进一步解析和完善简历信息
-        # prompt = f"请分析和结构化以下简历信息：\n{resume_info.raw_text}"
-        # response = await self.llm.ainvoke(prompt)
+        if not resume_info.raw_text:
+            logger.warning("No raw_text available for LLM enhancement")
+            return resume_info
+
+        prompt = f"""请分析和结构化以下简历信息，提取关键技能、工作经历、项目经验和教育背景：
+
+{resume_info.raw_text}
+
+请以JSON格式输出，包含以下字段：
+- skills: 技术技能列表
+- projects: 项目经验列表，每个项目包含name、description、technologies、role
+- experience: 工作经历列表，每个包含company、position、duration、description
+- education: 教育背景，包含school、degree、major
+
+只输出JSON，不要有其他文字。"""
+
+        try:
+            response = await invoke_llm(
+                system_prompt="你是一个专业的简历解析专家。",
+                user_prompt=prompt,
+                temperature=0.3,
+            )
+
+            # 尝试解析 LLM 返回的 JSON
+            try:
+                enhanced = json.loads(response)
+                if isinstance(enhanced, dict):
+                    # 更新 skills
+                    if "skills" in enhanced and isinstance(enhanced["skills"], list):
+                        resume_info.skills = enhanced["skills"]
+                    # 更新 projects
+                    if "projects" in enhanced and isinstance(enhanced["projects"], list):
+                        for i, proj in enumerate(enhanced["projects"]):
+                            if isinstance(proj, dict) and i < len(resume_info.projects):
+                                if "name" in proj:
+                                    resume_info.projects[i].name = proj["name"]
+                                if "description" in proj:
+                                    resume_info.projects[i].description = proj["description"]
+                                if "technologies" in proj:
+                                    resume_info.projects[i].technologies = proj["technologies"]
+                    logger.info("LLM enhancement completed successfully")
+            except json.JSONDecodeError as e:
+                logger.warning("Failed to parse LLM response as JSON: %s", e)
+
+        except Exception as e:
+            logger.error("Error in LLM enhancement: %s", e)
 
         return resume_info
