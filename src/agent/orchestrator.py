@@ -72,12 +72,12 @@ async def end_interview_node(state: InterviewState) -> dict:
     """结束面试：写入 PostgreSQL + 清理 Redis"""
     from src.tools.memory_tools import clear_session_memory
     from src.dao.interview_session_dao import InterviewSessionDAO
-    from src.db.database import get_session
+    from src.db.database import get_db_session
 
     # 1. 写入 PostgreSQL
-    async with get_session() as session:
+    async with get_db_session() as session:
         dao = InterviewSessionDAO(session)
-        await dao.update_status(state.session_id, "completed")
+        await dao.end_session(state.session_id)
 
     # 2. 清理 Redis
     await clear_session_memory(state.session_id)
