@@ -59,10 +59,10 @@ class TestReviewAgentFunctions:
         import asyncio
         assert not asyncio.iscoroutinefunction(_check_evaluation_reasonableness)
 
-    def test_check_evaluation_based_on_qa_is_function(self):
-        """Test that _check_evaluation_based_on_qa is a regular function"""
+    def test_check_evaluation_based_on_qa_is_async_function(self):
+        """Test that _check_evaluation_based_on_qa is an async function"""
         import asyncio
-        assert not asyncio.iscoroutinefunction(_check_evaluation_based_on_qa)
+        assert asyncio.iscoroutinefunction(_check_evaluation_based_on_qa)
 
     def test_check_standard_answer_fit_is_function(self):
         """Test that _check_standard_answer_fit is a regular function"""
@@ -131,14 +131,56 @@ class TestCheckEvaluationReasonableness:
 class TestCheckEvaluationBasedOnQa:
     """Test _check_evaluation_based_on_qa function"""
 
-    def test_returns_true_todo_implementation(self):
-        """Test that _check_evaluation_based_on_qa returns True (TODO implementation)"""
-        result = _check_evaluation_based_on_qa(
-            "什么是 Redis?",
-            "Redis 是内存数据库",
-            {"deviation_score": 0.8}
+    @pytest.mark.asyncio
+    async def test_returns_true_with_yes_response(self):
+        """Test that _check_evaluation_based_on_qa returns True when LLM returns YES"""
+        from unittest.mock import AsyncMock, patch
+
+        with patch('src.agent.review_agent.invoke_llm', new_callable=AsyncMock) as mock:
+            mock.return_value = "YES, the evaluation is based on Q&A"
+
+            result = await _check_evaluation_based_on_qa(
+                "什么是 Redis?",
+                "Redis 是内存数据库",
+                {"deviation_score": 0.8}
+            )
+            assert result is True
+
+    @pytest.mark.asyncio
+    async def test_returns_false_with_no_response(self):
+        """Test that _check_evaluation_based_on_qa returns False when LLM returns NO"""
+        from unittest.mock import AsyncMock, patch
+
+        with patch('src.agent.review_agent.invoke_llm', new_callable=AsyncMock) as mock:
+            mock.return_value = "NO, the evaluation is not based on Q&A"
+
+            result = await _check_evaluation_based_on_qa(
+                "什么是 Redis?",
+                "Redis 是内存数据库",
+                {"deviation_score": 0.8}
+            )
+            assert result is False
+
+
+@pytest.mark.asyncio
+async def test_check_evaluation_based_on_qa_llm_true():
+    """测试 LLM 判断评估基于 QA 返回 YES"""
+    from unittest.mock import AsyncMock, patch
+
+    # Patch the invoke_llm function in the review_agent module where it's imported
+    with patch('src.agent.review_agent.invoke_llm', new_callable=AsyncMock) as mock:
+        mock.return_value = "YES, the evaluation is based on Q&A"
+
+        result = await _check_evaluation_based_on_qa(
+            question="What is Redis?",
+            user_answer="Redis is an in-memory database",
+            evaluation={"deviation_score": 0.8}
         )
         assert result is True
+        mock.assert_awaited_once()
+        # Verify the prompt was formatted correctly
+        call_args = mock.call_args
+        assert "what is redis" in call_args.kwargs["user_prompt"].lower()
 
 
 class TestCheckStandardAnswerFit:
@@ -167,20 +209,21 @@ class TestCheckStandardAnswerFit:
 async def test_review_evaluation_pass():
     """测试审查通过 - 所有投票器通过"""
     state = InterviewState(session_id="test", resume_id="r1")
-    state = replace(state,
-        current_question_id="q_test",
-        answers={"q_test": Answer(question_id="q_test", content="使用 Redis", deviation_score=0.8)},
-        current_question=None
-    )
-
     evaluation_result = {
         "deviation_score": 0.8,
         "is_correct": True,
         "key_points": ["回答完整"],
         "suggestions": [],
     }
+    state = replace(state,
+        current_question_id="q_test",
+        answers={"q_test": Answer(question_id="q_test", content="使用 Redis", deviation_score=0.8)},
+        evaluation_results={"q_test": evaluation_result},
+        mastered_questions={"q_test": {"standard_answer": "使用 Redis 缓存"}},
+        current_question=None
+    )
 
-    result = await review_evaluation(state, evaluation_result, standard_answer="使用 Redis 缓存")
+    result = await review_evaluation(state)
 
     assert "review_passed" in result
     assert "review_failures" in result
@@ -195,27 +238,34 @@ async def test_review_evaluation_pass():
 @pytest.mark.asyncio
 async def test_review_evaluation_fail_invalid_score():
     """测试审查失败 - 评估分数无效"""
-    state = InterviewState(session_id="test", resume_id="r1")
-    state = replace(state,
-        current_question_id="q_test",
-        answers={"q_test": Answer(question_id="q_test", content="使用 Redis", deviation_score=1.5)},
-        current_question=None
-    )
+    from unittest.mock import AsyncMock, patch
 
+    state = InterviewState(session_id="test", resume_id="r1")
     evaluation_result = {
         "deviation_score": 1.5,  # Invalid: > 1
         "is_correct": True,
         "key_points": ["回答完整"],
         "suggestions": [],
     }
+    state = replace(state,
+        current_question_id="q_test",
+        answers={"q_test": Answer(question_id="q_test", content="使用 Redis", deviation_score=1.5)},
+        evaluation_results={"q_test": evaluation_result},
+        mastered_questions={"q_test": {"standard_answer": "使用 Redis 缓存"}},
+        current_question=None
+    )
 
-    result = await review_evaluation(state, evaluation_result, standard_answer="使用 Redis 缓存")
+    # Mock the LLM call to return YES (voter 0 passes)
+    with patch('src.agent.review_agent.invoke_llm', new_callable=AsyncMock) as mock:
+        mock.return_value = "YES"
+        result = await review_evaluation(state)
 
     assert "review_passed" in result
     assert "review_failures" in result
     assert "failure_reasons" in result
     # Voter 1 (_check_evaluation_reasonableness) should fail due to invalid score
-    # Voters 0 and 2 return True (TODO implementations)
+    # Voter 0 (LLM check) passes with YES
+    # Voter 2 (standard answer fit) passes
     # 2 out of 3 passed, so overall should pass
     assert result["review_passed"] is True
 
@@ -224,20 +274,20 @@ async def test_review_evaluation_fail_invalid_score():
 async def test_review_evaluation_no_standard_answer():
     """测试审查无标准答案"""
     state = InterviewState(session_id="test", resume_id="r1")
-    state = replace(state,
-        current_question_id="q_test",
-        answers={"q_test": Answer(question_id="q_test", content="使用 Redis", deviation_score=0.8)},
-        current_question=None
-    )
-
     evaluation_result = {
         "deviation_score": 0.8,
         "is_correct": True,
         "key_points": ["回答完整"],
         "suggestions": [],
     }
+    state = replace(state,
+        current_question_id="q_test",
+        answers={"q_test": Answer(question_id="q_test", content="使用 Redis", deviation_score=0.8)},
+        evaluation_results={"q_test": evaluation_result},
+        current_question=None
+    )
 
-    result = await review_evaluation(state, evaluation_result, standard_answer=None)
+    result = await review_evaluation(state)
 
     assert "review_passed" in result
     assert "review_failures" in result
@@ -254,20 +304,21 @@ async def test_review_evaluation_with_current_question():
         number=1
     )
     state = InterviewState(session_id="test", resume_id="r1")
-    state = replace(state,
-        current_question_id="q_test",
-        current_question=current_question,
-        answers={"q_test": Answer(question_id="q_test", content="Redis 是内存数据库", deviation_score=0.8)}
-    )
-
     evaluation_result = {
         "deviation_score": 0.8,
         "is_correct": True,
         "key_points": ["回答正确"],
         "suggestions": [],
     }
+    state = replace(state,
+        current_question_id="q_test",
+        current_question=current_question,
+        answers={"q_test": Answer(question_id="q_test", content="Redis 是内存数据库", deviation_score=0.8)},
+        evaluation_results={"q_test": evaluation_result},
+        mastered_questions={"q_test": {"standard_answer": "Redis 是一个内存数据库"}},
+    )
 
-    result = await review_evaluation(state, evaluation_result, standard_answer="Redis 是一个内存数据库")
+    result = await review_evaluation(state)
 
     assert "review_passed" in result
     assert result["review_passed"] is True
