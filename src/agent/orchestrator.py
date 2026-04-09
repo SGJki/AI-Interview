@@ -75,9 +75,10 @@ async def end_interview_node(state: InterviewState) -> dict:
     from src.db.database import get_db_session
 
     # 1. 写入 PostgreSQL
-    async with get_db_session() as session:
+    async for session in get_db_session():
         dao = InterviewSessionDAO(session)
         await dao.end_session(state.session_id)
+        break
 
     # 2. 清理 Redis
     await clear_session_memory(state.session_id)
