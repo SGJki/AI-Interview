@@ -68,6 +68,23 @@ async def review_agent_node(state: InterviewState) -> dict:
     return await review_agent_graph.ainvoke(state)
 
 
+async def end_interview_node(state: InterviewState) -> dict:
+    """结束面试：写入 PostgreSQL + 清理 Redis"""
+    from src.tools.memory_tools import clear_session_memory
+    from src.dao.interview_session_dao import InterviewSessionDAO
+    from src.db.database import get_session
+
+    # 1. 写入 PostgreSQL
+    async with get_session() as session:
+        dao = InterviewSessionDAO(session)
+        await dao.update_status(state.session_id, "completed")
+
+    # 2. 清理 Redis
+    await clear_session_memory(state.session_id)
+
+    return {"phase": "completed"}
+
+
 def create_orchestrator_graph() -> StateGraph:
     graph = StateGraph(InterviewState)
     graph.add_node("init", init_node)
