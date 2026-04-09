@@ -30,13 +30,13 @@ async def orchestrator_node(state: InterviewState) -> dict:
 def decide_next_node(state: InterviewState) -> dict:
     from src.config import config
     if getattr(state, "user_end_requested", False):
-        return {"next_action": "final_feedback"}
+        return {"next_action": "end_interview"}
     if state.current_series >= config.max_series:
-        return {"next_action": "final_feedback"}
+        return {"next_action": "end_interview"}
     if state.error_count >= config.error_threshold:
-        return {"next_action": "final_feedback"}
+        return {"next_action": "end_interview"}
     if getattr(state, "all_responsibilities_used", False):
-        return {"next_action": "final_feedback"}
+        return {"next_action": "end_interview"}
     return {"next_action": "question_agent"}
 
 
@@ -90,7 +90,7 @@ def create_orchestrator_graph() -> StateGraph:
     graph.add_node("init", init_node)
     graph.add_node("orchestrator", orchestrator_node)
     graph.add_node("decide_next", decide_next_node)
-    graph.add_node("final_feedback", final_feedback_node)
+    graph.add_node("end_interview", end_interview_node)
     graph.add_node("resume_agent", resume_agent_node)
     graph.add_node("knowledge_agent", knowledge_agent_node)
     graph.add_node("question_agent", question_agent_node)
@@ -110,14 +110,14 @@ def create_orchestrator_graph() -> StateGraph:
             "evaluate_agent": "evaluate_agent",
             "feedback_agent": "feedback_agent",
             "review_agent": "review_agent",
-            "final_feedback": "final_feedback",
+            "end_interview": "end_interview",
         }
     )
     graph.add_edge("question_agent", "evaluate_agent")
     graph.add_edge("evaluate_agent", "review_agent")
     graph.add_edge("review_agent", "feedback_agent")
     graph.add_edge("feedback_agent", "decide_next")
-    graph.add_edge("final_feedback", END)
+    graph.add_edge("end_interview", END)
     return graph.compile()
 
 

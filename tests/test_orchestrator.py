@@ -36,7 +36,7 @@ class TestOrchestratorGraph:
             "init",
             "orchestrator",
             "decide_next",
-            "final_feedback",
+            "end_interview",
             "resume_agent",
             "knowledge_agent",
             "question_agent",
@@ -125,29 +125,29 @@ class TestOrchestratorFunctions:
         """Test decide_next_node routing logic"""
         from src.config import config
 
-        # Test: if current_series >= max_series, route to final_feedback
+        # Test: if current_series >= max_series, route to end_interview
         state = InterviewState(session_id="test", resume_id="test")
         state = replace(state, current_series=config.max_series + 1)
         result = decide_next_node(state)
-        assert result == "final_feedback"
+        assert result == {"next_action": "end_interview"}
 
-        # Test: if error_count >= error_threshold, route to final_feedback
+        # Test: if error_count >= error_threshold, route to end_interview
         state = InterviewState(session_id="test", resume_id="test")
         state = replace(state, error_count=config.error_threshold + 1, current_series=1)
         result = decide_next_node(state)
-        assert result == "final_feedback"
+        assert result == {"next_action": "end_interview"}
 
-        # Test: if all_responsibilities_used, route to final_feedback
+        # Test: if all_responsibilities_used, route to end_interview
         state = InterviewState(session_id="test", resume_id="test")
         state = replace(state, all_responsibilities_used=True, current_series=1, error_count=0)
         result = decide_next_node(state)
-        assert result == "final_feedback"
+        assert result == {"next_action": "end_interview"}
 
         # Test: normal case, route to question_agent
         state = InterviewState(session_id="test", resume_id="test")
         state = replace(state, current_series=1, error_count=0, all_responsibilities_used=False)
         result = decide_next_node(state)
-        assert result == "question_agent"
+        assert result == {"next_action": "question_agent"}
 
         # Note: user_end_requested uses getattr which will return False
         # since that attribute doesn't exist on InterviewState
