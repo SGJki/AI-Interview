@@ -4,10 +4,13 @@ Interview Service for AI Interview Agent
 面试服务：整合 Agent、工具和状态管理
 """
 
+import logging
 import random
 import time
 from typing import Optional
 from dataclasses import dataclass, replace
+
+logger = logging.getLogger(__name__)
 
 from src.agent.state import (
     InterviewState,
@@ -25,7 +28,6 @@ from src.agent.state import (
 )
 from src.tools.memory_tools import (
     save_to_session_memory,
-    get_session_memory,
     clear_session_memory,
     cache_next_series_question,
     get_cached_next_question,
@@ -176,9 +178,6 @@ class InterviewService:
         Returns:
             问答响应
         """
-        import logging
-        import sys
-        logger = logging.getLogger(__name__)
         logger.info(f"[submit_answer] START resume_context len={len(self.context.resume_context)}, context id={id(self.context)}")
 
         if not self.state or not self.context:
@@ -193,8 +192,6 @@ class InterviewService:
         # REALTIME 模式：立即生成反馈
         feedback = None
         if self.feedback_mode == FeedbackMode.REALTIME:
-            import logging
-            logger = logging.getLogger(__name__)
             logger.info(f"[submit_answer] REALTIME mode, generating feedback...")
             try:
                 feedback = await self._generate_feedback(question_id, user_answer, deviation_score)
@@ -325,7 +322,8 @@ class InterviewService:
         # 清理 Redis 记忆
         await clear_session_memory(self.session_id)
 
-        # TODO: 写入 PostgreSQL
+        # 写入 PostgreSQL
+        await self._persist_to_postgresql(final_feedback)
 
         return {
             "status": "completed",
@@ -355,9 +353,6 @@ class InterviewService:
 
         从向量数据库加载与当前面试相关的知识上下文
         """
-        import logging
-        logger = logging.getLogger(__name__)
-
         if not self.context:
             return
 
@@ -393,14 +388,116 @@ class InterviewService:
             except Exception as e:
                 logger.error(f"[_load_knowledge_base] error loading knowledge: {e}")
 
+    async def _persist_to_postgresql(self, final_feedback: dict) -> None:
+        """持久化面试数据到 PostgreSQL
+
+        将面试会话、问答历史和反馈写入数据库
+
+        迁移后版本：使用 BIGSERIAL 主键，通过 uuid 列定位
+
+        Args:
+            final_feedback: 最终反馈字典
+        """
+        if not self.context:
+            logger.warning("[_persist_to_postgresql] No context to persist")
+            return
+
+        try:
+            from src.db.database import get_database_manager
+            from src.db.models import InterviewSession, QAHistory, InterviewFeedback, Resume
+            from uuid import UUID, uuid4
+            from sqlalchemy import select
+            from datetime import datetime
+
+            db = get_database_manager()
+
+            # 验证 session_id 和 resume_id 是有效的 UUID 格式
+            try:
+                session_uuid = UUID(self.session_id) if self.session_id else None
+                resume_uuid = UUID(self.resume_id) if self.resume_id else None
+            except ValueError:
+                logger.warning(f"[_persist_to_postgresql] Invalid UUID format, session_id={self.session_id}, resume_id={self.resume_id}")
+                return
+
+            if not session_uuid or not resume_uuid:
+                logger.warning(f"[_persist_to_postgresql] Missing session_uuid or resume_uuid")
+                return
+
+            async with db.get_session() as session:
+                # 1. 通过 resumes.uuid 找到 resume 的 BIGSERIAL id
+                stmt_resume = select(Resume).where(Resume.uuid == resume_uuid)
+                result_resume = await session.execute(stmt_resume)
+                resume = result_resume.scalar_one_or_none()
+
+                if not resume:
+                    logger.warning(f"[_persist_to_postgresql] Resume not found for uuid={resume_uuid}")
+                    return
+
+                resume_id_bigint = resume.id  # BIGINT
+                user_id_bigint = resume.user_id  # BIGINT
+
+                # 2. 查找或创建面试会话
+                # 先尝试通过 interview_sessions.uuid 查找现有会话
+                stmt_session = select(InterviewSession).where(InterviewSession.uuid == session_uuid)
+                result_session = await session.execute(stmt_session)
+                interview_session = result_session.scalar_one_or_none()
+
+                if interview_session:
+                    # 更新现有会话
+                    interview_session.status = "completed"
+                    interview_session.ended_at = datetime.now()
+                else:
+                    # 创建新会话
+                    interview_session = InterviewSession(
+                        uuid=session_uuid,  # 存储 UUID
+                        user_id=user_id_bigint,  # BIGINT
+                        resume_id=resume_id_bigint,  # BIGINT
+                        mode=self.context.interview_mode.value if hasattr(self.context.interview_mode, 'value') else str(self.context.interview_mode),
+                        feedback_mode=self.context.feedback_mode.value if hasattr(self.context.feedback_mode, 'value') else str(self.context.feedback_mode),
+                        status="completed",
+                    )
+                    session.add(interview_session)
+
+                await session.flush()
+                session_id_bigint = interview_session.id  # BIGINT
+
+                # 3. 保存问答历史
+                for answer_data in self.context.answers:
+                    if isinstance(answer_data, dict):
+                        qa_history = QAHistory(
+                            session_id=session_id_bigint,  # BIGINT
+                            series=answer_data.get("series", 1),
+                            question_number=answer_data.get("question_number", 1),
+                            question=answer_data.get("question", ""),
+                            user_answer=answer_data.get("answer", ""),
+                            standard_answer=answer_data.get("standard_answer"),
+                            feedback=answer_data.get("feedback"),
+                            deviation_score=answer_data.get("deviation", 1.0),
+                        )
+                        session.add(qa_history)
+
+                # 4. 保存最终反馈
+                if final_feedback:
+                    feedback_record = InterviewFeedback(
+                        session_id=session_id_bigint,  # BIGINT
+                        overall_score=final_feedback.get("overall_score", 0.0),
+                        strengths=final_feedback.get("strengths", []),
+                        weaknesses=final_feedback.get("weaknesses", []),
+                        suggestions=final_feedback.get("suggestions", []),
+                    )
+                    session.add(feedback_record)
+
+                await session.commit()
+                logger.info(f"[_persist_to_postgresql] Persisted interview data for session {self.session_id}")
+
+        except Exception as e:
+            logger.error(f"[_persist_to_postgresql] Failed to persist interview data: {e}")
+
     async def _load_responsibilities(self):
         """加载职责列表
 
         从 Chroma 向量库加载简历中的个人职责，用于针对性提问
         """
-        import logging
-        logger = logging.getLogger(__name__)
-
         if not self.context or not self.resume_id:
             return
 
@@ -488,9 +585,6 @@ class InterviewService:
         Returns:
             (is_duplicate, similar_question_id): 是否重复及相似的问题ID
         """
-        import logging
-        logger = logging.getLogger(__name__)
-
         # 验证 resume_id 是否为有效的 UUID 格式
         if not self._is_valid_uuid(self.resume_id):
             logger.warning(f"[_check_question_duplication] resume_id '{self.resume_id}' is not a valid UUID, skipping duplicate check")
@@ -584,9 +678,6 @@ class InterviewService:
         Returns:
             是否保存成功
         """
-        import logging
-        logger = logging.getLogger(__name__)
-
         # 验证 resume_id 是否为有效的 UUID 格式
         if not self._is_valid_uuid(self.resume_id):
             logger.warning(f"[_save_question_to_kb] resume_id '{self.resume_id}' is not a valid UUID, skipping save")
@@ -639,8 +730,6 @@ class InterviewService:
         Returns:
             下一个问题
         """
-        import logging
-        logger = logging.getLogger(__name__)
         logger.info(f"[_generate_next_question] ENTRY resume_context len={len(self.context.resume_context)}, context id={id(self.context)}")
 
         # 检查是否有预生成的问题
@@ -720,8 +809,6 @@ class InterviewService:
         Yields:
             问题的每个 token
         """
-        import logging
-        logger = logging.getLogger(__name__)
         logger.info(f"[_generate_next_question_stream] ENTRY resume_context len={len(self.context.resume_context)}")
 
         resume_info = self.context.resume_context or self.resume_id or "无简历信息"
@@ -1087,12 +1174,32 @@ class InterviewService:
         # 每个系列至少需要 1 个问题才认为完成
         return len(questions_in_current_series) >= 1
 
+    async def _compress_current_series(self) -> None:
+        """
+        Context Catch: 压缩当前系列状态到 Redis/PostgreSQL
+
+        在系列切换时自动调用，保存当前系列的进度快照
+        """
+        try:
+            from src.core.context_catch import ContextCatchEngine
+
+            engine = ContextCatchEngine()
+            await engine.compress(self.context, trigger="auto")
+        except Exception as e:
+            # 压缩失败不应该阻止系列切换，记录日志继续执行
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"ContextCatch compress failed: {e}")
+
     async def _switch_to_next_series(self) -> None:
         """
         切换到下一个系列
 
         记录当前系列到历史记录，重置错误计数
         """
+        # Context Catch: 系列切换前自动压缩
+        await self._compress_current_series()
+
         current_series = self.state.current_series
 
         # 收集当前系列的问题和回答
@@ -1409,8 +1516,6 @@ class InterviewService:
         Yields:
             追问的每个 token 和元数据
         """
-        import logging
-        logger = logging.getLogger(__name__)
         logger.info(f"[_generate_followup_question_stream] ENTRY")
 
         if self.state is None:

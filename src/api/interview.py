@@ -10,6 +10,7 @@ Interview API Endpoints - FastAPI Route Handlers
 
 import asyncio
 import json
+from datetime import datetime
 from typing import AsyncGenerator
 from dataclasses import replace
 
@@ -26,6 +27,9 @@ from src.api.models import (
     QAResponse,
     FeedbackData,
     InterviewResult,
+    SnapshotRequest,
+    RestoreRequest,
+    SnapshotResponse,
 )
 from src.agent.state import InterviewMode, FeedbackMode, QuestionType, Feedback, FeedbackType, Question, Answer
 from src.services.interview_service import InterviewService, create_interview
@@ -546,3 +550,137 @@ async def end_interview(
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to end interview: {str(e)}")
+
+
+# =============================================================================
+# Context Catch Endpoints
+# =============================================================================
+
+@interview_router.post("/snapshot")
+async def create_snapshot(request: SnapshotRequest) -> SnapshotResponse:
+    """
+    创建上下文快照（用户主动触发）
+
+    Args:
+        request: 快照请求，包含会话ID和触发方式
+
+    Returns:
+        SnapshotResponse: 包含快照版本和时间戳
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    try:
+        from src.tools.memory_tools import SessionStateManager
+        from src.core.context_catch import ContextCatchEngine
+
+        session_manager = SessionStateManager()
+        context = await session_manager.load_interview_state(request.session_id)
+
+        if not context:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        engine = ContextCatchEngine()
+        snapshot = await engine.compress(context, trigger=request.trigger)
+
+        return SnapshotResponse(
+            session_id=snapshot.session_id,
+            version=snapshot.version,
+            timestamp=snapshot.timestamp,
+            compressed_summary={
+                "progress": {
+                    "current_series": snapshot.progress.current_series,
+                    "current_phase": snapshot.progress.current_phase,
+                    "responsibilities": list(snapshot.progress.responsibilities),
+                },
+                "evaluation": {
+                    "series_scores": snapshot.evaluation.series_scores,
+                    "error_count": snapshot.evaluation.error_count,
+                },
+                "insights": {
+                    "covered_technologies": snapshot.insights.covered_technologies,
+                    "weak_areas": snapshot.insights.weak_areas,
+                    "error_patterns": snapshot.insights.error_patterns,
+                },
+            },
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to create snapshot: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to create snapshot: {str(e)}")
+
+
+@interview_router.get("/snapshot/{session_id}")
+async def get_snapshot(
+    session_id: str,
+    mode: str = Query("full", description="恢复模式: full/key_points"),
+) -> SnapshotResponse:
+    """
+    获取/恢复上下文快照
+
+    Args:
+        session_id: 会话ID
+        mode: 恢复模式 (full=完整恢复, key_points=从关键点重新开始)
+
+    Returns:
+        SnapshotResponse: 快照信息
+    """
+    import logging
+    logger = logging.getLogger(__name__)
+
+    try:
+        from src.core.context_catch import ContextCatchEngine
+
+        engine = ContextCatchEngine()
+        context = await engine.restore(session_id, mode=mode)
+
+        if not context:
+            raise HTTPException(status_code=404, detail="Snapshot not found")
+
+        # 加载完整快照信息用于返回
+        from src.tools.memory_tools import SessionStateManager
+        session_manager = SessionStateManager()
+        full_context = await session_manager.load_interview_state(session_id)
+
+        if not full_context:
+            raise HTTPException(status_code=404, detail="Session not found")
+
+        # 获取最新快照版本
+        from src.db.context_snapshot import ContextSnapshot
+        from src.db.database import get_db_session
+
+        get_db = get_db_session()
+        version = 1
+        timestamp = datetime.now()
+        compressed_summary = {}
+
+        async for db_session in get_db():
+            stmt = (
+                ContextSnapshot.__table__.select()
+                .where(ContextSnapshot.session_id == session_id)
+                .order_by(ContextSnapshot.version.desc())
+                .limit(1)
+            )
+            result = await db_session.execute(stmt)
+            row = result.scalar_one_or_none()
+
+            if row:
+                version = row.version
+                timestamp = row.timestamp
+                compressed_summary = row.compressed_summary
+            break
+
+        return SnapshotResponse(
+            session_id=session_id,
+            version=version,
+            timestamp=timestamp,
+            compressed_summary=compressed_summary,
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get snapshot: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to get snapshot: {str(e)}")

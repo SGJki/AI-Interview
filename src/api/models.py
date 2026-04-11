@@ -4,7 +4,8 @@ Pydantic Models for FastAPI Interview API
 面试 API 请求/响应模型
 """
 
-from typing import Optional
+from typing import Optional, Literal
+from datetime import datetime
 from pydantic import BaseModel, Field
 
 
@@ -140,3 +141,27 @@ class SSEMessage(BaseModel):
     type: str = Field(..., description="消息类型")
     content: str = Field(..., description="消息内容")
     metadata: Optional[dict] = Field(None, description="元数据")
+
+
+# =============================================================================
+# Context Catch Models
+# =============================================================================
+
+class SnapshotRequest(BaseModel):
+    """创建快照请求"""
+    session_id: str = Field(..., description="会话ID")
+    trigger: Literal["auto", "manual"] = Field("manual", description="触发方式: auto=系列结束, manual=用户主动")
+
+
+class RestoreRequest(BaseModel):
+    """恢复会话请求"""
+    session_id: str = Field(..., description="会话ID")
+    mode: Literal["full", "key_points"] = Field("full", description="恢复模式: full=完整恢复, key_points=从关键点重新开始")
+
+
+class SnapshotResponse(BaseModel):
+    """快照响应"""
+    session_id: str = Field(..., description="会话ID")
+    version: int = Field(..., description="快照版本号")
+    timestamp: datetime = Field(..., description="快照时间戳")
+    compressed_summary: dict = Field(..., description="压缩摘要内容")
