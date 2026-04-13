@@ -217,3 +217,96 @@ async def invoke_llm_stream(
     if chunk_count <= 1:
         # 这种情况可能API不支持流式，返回空让调用方知道
         pass
+
+
+async def invoke_llm_with_usage(
+    system_prompt: str,
+    user_prompt: str,
+    temperature: float = 0.7,
+    include_reasoning: bool = False,
+) -> LLMResponse:
+    """
+    调用 LLM 生成文本，并返回使用量信息
+
+    Args:
+        system_prompt: 系统提示词
+        user_prompt: 用户提示词
+        temperature: 采样温度
+        include_reasoning: 是否在返回内容中包含思考过程
+
+    Returns:
+        LLMResponse，含生成文本和 usage（prompt_tokens, completion_tokens, cached_tokens）
+    """
+    import json
+    import re
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    from src.llm.usage import LLMUsage, LLMResponse, PromptTokensDetails
+
+    llm = get_chat_model(temperature=temperature)
+
+    messages = [
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=user_prompt),
+    ]
+
+    response = await llm.ainvoke(messages)
+    content = response.content
+
+    # 提取思考标签内容
+    thinking_content = ""
+    thinking_match = re.search(r'<think>([\s\S]*?)</think>', content)
+    if thinking_match:
+        thinking_content = thinking_match.group(0)
+    thinking_match2 = re.search(r'<thinking>([\s\S]*?)</thinking>', content)
+    if thinking_match2:
+        thinking_content = thinking_match2.group(0)
+
+    # 提取"最终输出生成"之后的内容
+    if "最终输出生成" in content:
+        content = content.split("最终输出生成")[-1].strip()
+
+    # 去除思考标签得到干净内容
+    clean_content = re.sub(r'<think>[\s\S]*?</think>', '', content)
+    clean_content = re.sub(r'<thinking>[\s\S]*?</thinking>', '', clean_content)
+
+    clean_content = clean_content.strip()
+    if not clean_content.startswith("{"):
+        try:
+            decoder = json.JSONDecoder()
+            first_brace = clean_content.find("{")
+            if first_brace >= 0:
+                json_content = clean_content[first_brace:]
+                decoded, end_idx = decoder.raw_decode(json_content)
+                clean_content = json.dumps(decoded, ensure_ascii=False)
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    # 根据参数决定返回内容
+    if include_reasoning and thinking_content:
+        final_content = f"【思考过程】\n{thinking_content}\n\n【回答】\n{clean_content}"
+    else:
+        final_content = clean_content
+
+    # 提取 usage 信息
+    usage_metadata = getattr(response, "usage_metadata", None)
+    prompt_tokens = 0
+    completion_tokens = 0
+    cached_tokens = 0
+
+    if usage_metadata:
+        input_tokens = usage_metadata.get("input_tokens", 0)
+        output_tokens = usage_metadata.get("output_tokens", 0)
+        prompt_tokens = input_tokens if input_tokens else 0
+        completion_tokens = output_tokens if output_tokens else 0
+
+        response_metadata = getattr(response, "response_metadata", {})
+        cached_tokens = response_metadata.get("cache_tokens", 0) or response_metadata.get("cached_tokens", 0) or 0
+
+    usage = LLMUsage(
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        prompt_tokens_details=PromptTokensDetails(cached_tokens=cached_tokens),
+    )
+
+    return LLMResponse(content=final_content, usage=usage)
