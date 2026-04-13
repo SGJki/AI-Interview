@@ -167,6 +167,75 @@ class InterviewService:
 
         return question
 
+    async def restore_interview(self) -> tuple[Question, bool]:
+        """
+        恢复面试会话
+
+        使用 RecoveryManager 协调 ContextCatch 和 PromptCache 进行会话恢复。
+        如果缓存有效，恢复速度快；如果缓存失效或无缓存，降级恢复。
+
+        Returns:
+            tuple[Question, bool]: (第一个问题, 是否降级恢复)
+            - 问题: 恢复后的当前问题
+            - 是否降级: True=降级恢复(缓存无效)，False=正常恢复(缓存有效)
+
+        Raises:
+            ValueError: 如果会话不存在
+        """
+        from src.core.recovery_manager import RecoveryManager
+
+        manager = RecoveryManager()
+
+        try:
+            result = await manager.recover_session(self.session_id)
+        except ValueError:
+            # 会话不存在，降级到 start_interview
+            logger.info(f"Session {self.session_id} not found, starting fresh")
+            question = await self.start_interview()
+            return question, True
+
+        if result.degraded:
+            logger.info(f"Session {self.session_id} recovered in degraded mode: {result.degraded_reason}")
+            # 降级恢复：需要重建上下文，但保留快照中的进度信息
+            self.state = result.snapshot
+            self.context = InterviewContext(
+                session_id=self.session_id,
+                resume_id=self.resume_id,
+                knowledge_base_id=self.knowledge_base_id,
+                interview_mode=self.interview_mode,
+                feedback_mode=self.feedback_mode,
+                error_threshold=self.error_threshold,
+            )
+            # 从快照恢复关键状态
+            if hasattr(result.snapshot, 'current_series'):
+                self.state.current_series = result.snapshot.current_series
+            if hasattr(result.snapshot, 'error_count'):
+                self.state.error_count = result.snapshot.error_count
+        else:
+            logger.info(f"Session {self.session_id} recovered with cache hit rate: {result.cache_hit_rate:.2%}")
+            # 正常恢复：缓存有效，可以使用压缩后的上下文
+            self.state = result.snapshot
+            self.context = InterviewContext(
+                session_id=self.session_id,
+                resume_id=self.resume_id,
+                knowledge_base_id=self.knowledge_base_id,
+                interview_mode=self.interview_mode,
+                feedback_mode=self.feedback_mode,
+                error_threshold=self.error_threshold,
+            )
+
+        # 加载知识库（如有）
+        if self.knowledge_base_id:
+            await self._load_knowledge_base()
+
+        # 生成当前问题
+        question = await self._generate_next_question()
+
+        # 保存到 Redis
+        await save_to_session_memory(self.session_id, self.context)
+
+        return question, result.degraded
+
     async def submit_answer(self, user_answer: str, question_id: str) -> QAResponse:
         """
         提交回答
@@ -1176,19 +1245,24 @@ class InterviewService:
 
     async def _compress_current_series(self) -> None:
         """
-        Context Catch: 压缩当前系列状态到 Redis/PostgreSQL
+        Context Catch + Prompt Cache: 压缩当前系列状态并更新缓存
 
-        在系列切换时自动调用，保存当前系列的进度快照
+        在系列切换时自动调用，使用 RecoveryManager 协调保存快照和缓存状态
         """
         try:
-            from src.core.context_catch import ContextCatchEngine
+            from src.core.recovery_manager import RecoveryManager
 
+            manager = RecoveryManager()
+
+            # 1. 生成压缩快照（包含进度、评估、洞察）
+            from src.core.context_catch import ContextCatchEngine
             engine = ContextCatchEngine()
-            await engine.compress(self.context, trigger="auto")
+            snapshot = await engine.compress(self.context, trigger="auto")
+
+            # 2. 使用 RecoveryManager 统一保存（快照 + 缓存状态）
+            await manager.save_checkpoint(self.session_id, snapshot)
         except Exception as e:
             # 压缩失败不应该阻止系列切换，记录日志继续执行
-            import logging
-            logger = logging.getLogger(__name__)
             logger.warning(f"ContextCatch compress failed: {e}")
 
     async def _switch_to_next_series(self) -> None:
