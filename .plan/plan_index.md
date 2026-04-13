@@ -8,3 +8,4 @@
 | 4 | phase1-reviewagent-persistence.md | ReviewAgent LLM判断 + 结束持久化 |
 | 5 | context-catch.md | Context Catch 摘要式记忆系统，支持会话中断后快速恢复 |
 | 6 | prompt-caching-recovery.md | Context Catch + Prompt Caching 组合实现会话恢复 |
+| 7 | invoke-llm-usage.md | 修改 invoke_llm 返回 usage 信息（含 cached_tokens） |
