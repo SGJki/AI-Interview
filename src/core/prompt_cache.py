@@ -196,9 +196,6 @@ class PromptCache:
         """
         使用真实 LLM 调用验证缓存
 
-        注意：此方法需要 invoke_llm 返回包含 usage 信息的完整响应。
-        目前 invoke_llm 仅返回文本内容，需要扩展以支持 cached_tokens 提取。
-
         Args:
             session_id: 会话 ID
             resume_id: 简历 ID
@@ -209,27 +206,27 @@ class PromptCache:
         Returns:
             PromptCacheState 实例
         """
-        from src.llm.client import invoke_llm
+        from src.llm.client import invoke_llm_with_usage
+        from src.llm.usage import LLMResponse
 
         cache_key_obj = CacheKey.generate(resume_id, responsibilities)
 
         try:
             # 调用 LLM
-            _ = await invoke_llm(
+            response: LLMResponse = await invoke_llm_with_usage(
                 system_prompt=system_prompt,
                 user_prompt=test_prompt,
-                temperature=0.0,  # 使用确定输出
+                temperature=0.0,
             )
 
-            # TODO: 从响应中提取 usage 信息（需要修改 invoke_llm 返回完整响应）
-            # 目前 invoke_llm 不返回 usage，故暂时假设缓存有效
-            # 后续修改 invoke_llm 后再提取 cached_tokens
+            # 提取 cached_tokens
+            cached_tokens = response.usage.prompt_tokens_details.cached_tokens
 
             state = PromptCacheState(
                 cache_key=cache_key_obj.cache_key,
                 responsibilities_hash=cache_key_obj.responsibilities_hash,
-                is_valid=True,  # 暂时假设有效
-                last_cached_tokens=0,  # TODO: 从响应获取
+                is_valid=cached_tokens > 0,
+                last_cached_tokens=cached_tokens,
                 created_at=datetime.now().isoformat(),
             )
 
