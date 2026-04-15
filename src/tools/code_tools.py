@@ -353,6 +353,10 @@ async def extract_architecture(
     Returns:
         架构信息
     """
+    import re
+    import logging
+    logger = logging.getLogger(__name__)
+
     # 查找架构文档
     arch_doc = None
     arch_path = None
@@ -364,16 +368,115 @@ async def extract_architecture(
                     arch_doc = read_file_content(arch_path)
                     break
 
-    # TODO: 解析架构图
-    # 目前只返回基本描述
+    if not arch_doc:
+        return ArchitectureInfo(
+            description="未找到架构文档",
+            diagram_path=None,
+            components=[],
+            data_flow="",
+            tech_choices={},
+        )
+
+    # 解析架构文档
+    components = _extract_components(arch_doc)
+    data_flow = _extract_data_flow(arch_doc)
+    tech_choices = _extract_tech_choices(arch_doc)
+
+    logger.info(f"[extract_architecture] Parsed arch doc: {len(components)} components, data_flow={bool(data_flow)}, tech_choices={len(tech_choices)}")
 
     return ArchitectureInfo(
-        description=arch_doc or "未找到架构文档",
+        description=arch_doc[:500] if len(arch_doc) > 500 else arch_doc,
         diagram_path=arch_path,
-        components=[],  # TODO: 从架构文档解析
-        data_flow="",   # TODO: 从架构文档解析
-        tech_choices={},  # TODO: 从架构文档解析
+        components=components,
+        data_flow=data_flow,
+        tech_choices=tech_choices,
     )
+
+
+def _extract_components(arch_doc: str) -> list[str]:
+    """从架构文档中提取组件列表"""
+    import re
+
+    components = []
+
+    # 模式1: 标题后的列表 (## Components, ## 模块, ## 组件)
+    section_pattern = r"(?:^|[\\n])(?:#{1,3})\s*(?:components?|modules?|组件|模块|服务|architecture\s*components?)(?:[\\n]|$)"
+    matches = list(re.finditer(section_pattern, arch_doc, re.IGNORECASE | re.MULTILINE))
+
+    for i, match in enumerate(matches):
+        start = match.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(arch_doc)
+
+        section_content = arch_doc[start:end]
+
+        # 提取列表项 (- item, * item, 1. item)
+        list_pattern = r"^\s*[-*•]\s*(.+)$|^\s*(\d+)\.\s*(.+)$"
+        for line in section_content.split("\\n"):
+            list_match = re.match(list_pattern, line.strip())
+            if list_match:
+                component = list_match.group(1) or list_match.group(3)
+                if component and len(component) < 100:  # 过滤掉过长的行
+                    components.append(component.strip())
+
+    # 去重
+    components = list(dict.fromkeys(components))[:20]  # 最多20个组件
+
+    return components
+
+
+def _extract_data_flow(arch_doc: str) -> str:
+    """从架构文档中提取数据流描述"""
+    import re
+
+    # 查找数据流相关章节
+    flow_patterns = [
+        r"(?:^|[\\n])(?:#{1,3})\s*(?:data\s*flow|flow|数据流|流程)(?:[\\n]|$)",
+        r"(?:^|[\\n])(?:#{1,3})\s*(?:request\s*flow|processing\s*flow|处理流程)(?:[\\n]|$)",
+    ]
+
+    for pattern in flow_patterns:
+        matches = list(re.finditer(pattern, arch_doc, re.IGNORECASE | re.MULTILINE))
+        if matches:
+            start = matches[0].end()
+            end = matches[0].end() + 1000 if len(matches) == 1 else matches[1].start()
+
+            section_content = arch_doc[start:end].strip()
+
+            # 清理并返回
+            section_content = re.sub(r"^#+\s*", "", section_content)
+            return section_content[:500] if len(section_content) > 500 else section_content
+
+    return ""
+
+
+def _extract_tech_choices(arch_doc: str) -> dict[str, str]:
+    """从架构文档中提取技术选型"""
+    import re
+
+    tech_choices = {}
+
+    # 查找技术选型相关章节
+    tech_section_pattern = r"(?:^|[\\n])(?:#{1,3})\s*(?:tech|technology|技术选型|技术栈)(?:[\\n]|$)"
+    matches = list(re.finditer(tech_section_pattern, arch_doc, re.IGNORECASE | re.MULTILINE))
+
+    for i, match in enumerate(matches):
+        start = match.end()
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(arch_doc)
+
+        section_content = arch_doc[start:end]
+
+        # 提取键值对格式 (Key: Value, - Key: Value)
+        kv_pattern = r"[-*•]?\s*(\w+(?:\s+\w+)?)\s*[:：]\s*(.+?)(?:[\\n]|$)"
+        for kv_match in re.finditer(kv_pattern, section_content):
+            key = kv_match.group(1).strip()
+            value = kv_match.group(2).strip()
+            if key and value and len(key) < 50 and len(value) < 200:
+                tech_choices[key] = value
+
+    # 限制数量
+    tech_choices = dict(list(tech_choices.items())[:10])
+
+    return tech_choices
 
 
 # =============================================================================

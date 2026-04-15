@@ -17,14 +17,15 @@ from typing import Optional
 from uuid import uuid4
 
 from sqlalchemy import (
-    Column,
+    BigInteger,
+    Integer,
     String,
     Text,
     Float,
-    Integer,
     DateTime,
     ForeignKey,
     Index,
+    Sequence,
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import DeclarativeBase, relationship, Mapped, mapped_column
@@ -57,7 +58,8 @@ class User(Base):
     用户表（预留多租户）
 
     Attributes:
-        id: Primary key (UUID)
+        id: Internal primary key (BIGSERIAL)
+        uuid: External identifier for API (UUID, unique)
         name: User display name
         email: Unique email address
         created_at: Account creation timestamp
@@ -65,10 +67,15 @@ class User(Base):
 
     __tablename__ = "users"
 
-    id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[int] = mapped_column(
+        BigInteger,
         primary_key=True,
-        default=uuid4,
+        default=Sequence('users_id_seq'),
+    )
+    uuid: Mapped[UUID] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=False,
+        unique=True,
     )
     name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     email: Mapped[Optional[str]] = mapped_column(String(255), unique=True, nullable=True)
@@ -99,8 +106,8 @@ class Resume(Base):
     简历表
 
     Attributes:
-        id: Primary key (UUID)
-        user_id: Foreign key to users table
+        id: Internal primary key (BIGSERIAL)
+        user_id: Foreign key to users table (BIGINT)
         file_path: Path to uploaded resume file
         parsed_content: JSONB field for parsed resume data
         created_at: Creation timestamp
@@ -108,13 +115,13 @@ class Resume(Base):
 
     __tablename__ = "resumes"
 
-    id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[int] = mapped_column(
+        BigInteger,
         primary_key=True,
-        default=uuid4,
+        default=Sequence('resumes_id_seq'),
     )
-    user_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+    user_id: Mapped[int] = mapped_column(
+        BigInteger,
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
     )
@@ -147,8 +154,8 @@ class Project(Base):
     项目表
 
     Attributes:
-        id: Primary key (UUID)
-        resume_id: Foreign key to resumes table
+        id: Internal primary key (BIGSERIAL)
+        resume_id: Foreign key to resumes table (BIGINT)
         name: Project name
         repo_path: Repository path or URL
         description: Project description
@@ -157,13 +164,13 @@ class Project(Base):
 
     __tablename__ = "projects"
 
-    id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[int] = mapped_column(
+        BigInteger,
         primary_key=True,
-        default=uuid4,
+        default=Sequence('projects_id_seq'),
     )
-    resume_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+    resume_id: Mapped[int] = mapped_column(
+        BigInteger,
         ForeignKey("resumes.id", ondelete="CASCADE"),
         nullable=False,
     )
@@ -196,8 +203,8 @@ class KnowledgeBase(Base):
     The embedding_id references a pgvector embedding if pgvector is enabled.
 
     Attributes:
-        id: Primary key (UUID)
-        project_id: Foreign key to projects table
+        id: Internal primary key (BIGSERIAL)
+        project_id: Foreign key to projects table (BIGINT)
         type: Entry type (e.g., 'skill', 'experience')
         skill_point: Skill point name
         content: Text content
@@ -207,13 +214,13 @@ class KnowledgeBase(Base):
 
     __tablename__ = "knowledge_base"
 
-    id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[int] = mapped_column(
+        BigInteger,
         primary_key=True,
-        default=uuid4,
+        default=Sequence('knowledge_base_id_seq'),
     )
-    project_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+    project_id: Mapped[int] = mapped_column(
+        BigInteger,
         ForeignKey("projects.id", ondelete="CASCADE"),
         nullable=False,
     )
@@ -253,9 +260,9 @@ class InterviewSession(Base):
     面试会话表
 
     Attributes:
-        id: Primary key (UUID)
-        user_id: Foreign key to users table
-        resume_id: Foreign key to resumes table
+        id: Internal primary key (BIGSERIAL)
+        user_id: Foreign key to users table (BIGINT)
+        resume_id: Foreign key to resumes table (BIGINT)
         mode: Interview mode (free/training)
         feedback_mode: Feedback mode (realtime/recorded)
         status: Session status (active/completed/cancelled)
@@ -265,18 +272,18 @@ class InterviewSession(Base):
 
     __tablename__ = "interview_sessions"
 
-    id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[int] = mapped_column(
+        BigInteger,
         primary_key=True,
-        default=uuid4,
+        default=Sequence('interview_sessions_id_seq'),
     )
-    user_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+    user_id: Mapped[int] = mapped_column(
+        BigInteger,
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
     )
-    resume_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+    resume_id: Mapped[int] = mapped_column(
+        BigInteger,
         ForeignKey("resumes.id", ondelete="CASCADE"),
         nullable=False,
     )
@@ -325,8 +332,8 @@ class QAHistory(Base):
     Stores individual question-answer pairs during an interview session.
 
     Attributes:
-        id: Primary key (UUID)
-        session_id: Foreign key to interview_sessions table
+        id: Internal primary key (BIGSERIAL)
+        session_id: Foreign key to interview_sessions table (BIGINT)
         series: Series number (interview series)
         question_number: Question number within the series
         question: Question text
@@ -339,13 +346,13 @@ class QAHistory(Base):
 
     __tablename__ = "qa_history"
 
-    id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[int] = mapped_column(
+        BigInteger,
         primary_key=True,
-        default=uuid4,
+        default=Sequence('qa_history_id_seq'),
     )
-    session_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+    session_id: Mapped[int] = mapped_column(
+        BigInteger,
         ForeignKey("interview_sessions.id", ondelete="CASCADE"),
         nullable=False,
     )
@@ -385,8 +392,8 @@ class InterviewFeedback(Base):
     Stores final interview feedback and evaluation.
 
     Attributes:
-        id: Primary key (UUID)
-        session_id: Foreign key to interview_sessions table
+        id: Internal primary key (BIGSERIAL)
+        session_id: Foreign key to interview_sessions table (BIGINT)
         overall_score: Overall interview score (0-1)
         strengths: JSONB array of strengths
         weaknesses: JSONB array of weaknesses
@@ -396,13 +403,13 @@ class InterviewFeedback(Base):
 
     __tablename__ = "interview_feedback"
 
-    id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+    id: Mapped[int] = mapped_column(
+        BigInteger,
         primary_key=True,
-        default=uuid4,
+        default=Sequence('interview_feedback_id_seq'),
     )
-    session_id: Mapped[UUID] = mapped_column(
-        UUID(as_uuid=True),
+    session_id: Mapped[int] = mapped_column(
+        BigInteger,
         ForeignKey("interview_sessions.id", ondelete="CASCADE"),
         nullable=False,
     )
@@ -427,3 +434,7 @@ class InterviewFeedback(Base):
 
     def __repr__(self) -> str:
         return f"<InterviewFeedback(id={self.id}, score={self.overall_score})>"
+
+
+# Import ContextSnapshot for context_catch feature
+from src.db.context_snapshot import ContextSnapshot  # noqa: F401, E501

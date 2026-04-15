@@ -67,42 +67,24 @@ def get_chat_model(
     )
 
 
-async def invoke_llm(
-    system_prompt: str,
-    user_prompt: str,
-    temperature: float = 0.7,
-    include_reasoning: bool = False,
-) -> str:
+def _process_llm_response_content(content: str, include_reasoning: bool = False) -> str:
     """
-    调用 LLM 生成文本
+    处理 LLM 响应内容，提取思考标签和干净内容
 
     Args:
-        system_prompt: 系统提示词
-        user_prompt: 用户提示词
-        temperature: 采样温度
+        content: 原始 LLM 响应内容
         include_reasoning: 是否在返回内容中包含思考过程
 
     Returns:
-        LLM 生成的文本。如果 include_reasoning=True，返回格式为：
+        处理后的内容。如果 include_reasoning=True，返回格式为：
         "【思考过程】\n{thinking}\n【回答】\n{answer}"
     """
-    import json
     import re
-    from langchain_core.messages import HumanMessage, SystemMessage
+    import json
 
-    llm = get_chat_model(temperature=temperature)
-
-    messages = [
-        SystemMessage(content=system_prompt),
-        HumanMessage(content=user_prompt),
-    ]
-
-    response = await llm.ainvoke(messages)
-    content = response.content
-
-    # 提取思考过程
+    # 提取思考标签内容
     thinking_content = ""
-    thinking_match = re.search(r'<think>([\s\S]*?)?</think>', content)
+    thinking_match = re.search(r'<think>([\s\S]*?)</think>', content)
     if thinking_match:
         thinking_content = thinking_match.group(0)
     thinking_match2 = re.search(r'<thinking>([\s\S]*?)</thinking>', content)
@@ -136,6 +118,38 @@ async def invoke_llm(
         return f"【思考过程】\n{thinking_content}\n\n【回答】\n{clean_content}"
     else:
         return clean_content
+
+
+async def invoke_llm(
+    system_prompt: str,
+    user_prompt: str,
+    temperature: float = 0.7,
+    include_reasoning: bool = False,
+) -> str:
+    """
+    调用 LLM 生成文本
+
+    Args:
+        system_prompt: 系统提示词
+        user_prompt: 用户提示词
+        temperature: 采样温度
+        include_reasoning: 是否在返回内容中包含思考过程
+
+    Returns:
+        LLM 生成的文本。如果 include_reasoning=True，返回格式为：
+        "【思考过程】\n{thinking}\n【回答】\n{answer}"
+    """
+    from langchain_core.messages import HumanMessage, SystemMessage
+
+    llm = get_chat_model(temperature=temperature)
+
+    messages = [
+        SystemMessage(content=system_prompt),
+        HumanMessage(content=user_prompt),
+    ]
+
+    response = await llm.ainvoke(messages)
+    return _process_llm_response_content(response.content, include_reasoning)
 
 
 async def invoke_llm_with_history(
@@ -237,8 +251,6 @@ async def invoke_llm_with_usage(
     Returns:
         LLMResponse，含生成文本和 usage（prompt_tokens, completion_tokens, cached_tokens）
     """
-    import json
-    import re
     from langchain_core.messages import HumanMessage, SystemMessage
 
     from src.llm.usage import LLMUsage, LLMResponse, PromptTokensDetails
@@ -251,42 +263,9 @@ async def invoke_llm_with_usage(
     ]
 
     response = await llm.ainvoke(messages)
-    content = response.content
 
-    # 提取思考标签内容
-    thinking_content = ""
-    thinking_match = re.search(r'<think>([\s\S]*?)</think>', content)
-    if thinking_match:
-        thinking_content = thinking_match.group(0)
-    thinking_match2 = re.search(r'<thinking>([\s\S]*?)</thinking>', content)
-    if thinking_match2:
-        thinking_content = thinking_match2.group(0)
-
-    # 提取"最终输出生成"之后的内容
-    if "最终输出生成" in content:
-        content = content.split("最终输出生成")[-1].strip()
-
-    # 去除思考标签得到干净内容
-    clean_content = re.sub(r'<think>[\s\S]*?</think>', '', content)
-    clean_content = re.sub(r'<thinking>[\s\S]*?</thinking>', '', clean_content)
-
-    clean_content = clean_content.strip()
-    if not clean_content.startswith("{"):
-        try:
-            decoder = json.JSONDecoder()
-            first_brace = clean_content.find("{")
-            if first_brace >= 0:
-                json_content = clean_content[first_brace:]
-                decoded, end_idx = decoder.raw_decode(json_content)
-                clean_content = json.dumps(decoded, ensure_ascii=False)
-        except (json.JSONDecodeError, ValueError):
-            pass
-
-    # 根据参数决定返回内容
-    if include_reasoning and thinking_content:
-        final_content = f"【思考过程】\n{thinking_content}\n\n【回答】\n{clean_content}"
-    else:
-        final_content = clean_content
+    # 使用 helper 处理内容
+    final_content = _process_llm_response_content(response.content, include_reasoning)
 
     # 提取 usage 信息
     usage_metadata = getattr(response, "usage_metadata", None)

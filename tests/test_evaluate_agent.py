@@ -60,30 +60,34 @@ class TestEvaluateAgentFunctions:
         import asyncio
         assert asyncio.iscoroutinefunction(evaluate_without_standard)
 
-    def test_evaluate_with_standard_takes_state_question_user_answer_and_standard_answer(self):
-        """Test evaluate_with_standard function signature"""
+    def test_evaluate_with_standard_takes_only_state(self):
+        """Test evaluate_with_standard function signature extracts from state"""
         import inspect
         sig = inspect.signature(evaluate_with_standard)
         params = list(sig.parameters.keys())
-        assert "state" in params
-        assert "question" in params
-        assert "user_answer" in params
-        assert "standard_answer" in params
+        assert params == ["state"]
 
-    def test_evaluate_without_standard_takes_state_question_and_user_answer(self):
-        """Test evaluate_without_standard function signature"""
+    def test_evaluate_without_standard_takes_only_state(self):
+        """Test evaluate_without_standard function signature extracts from state"""
         import inspect
         sig = inspect.signature(evaluate_without_standard)
         params = list(sig.parameters.keys())
-        assert "state" in params
-        assert "question" in params
-        assert "user_answer" in params
+        assert params == ["state"]
 
 
 @pytest.mark.asyncio
 async def test_evaluate_with_standard_success():
     """测试使用标准答案评估"""
-    state = InterviewState(session_id="test", resume_id="r1", current_question_id="q_test")
+    from dataclasses import replace
+    from src.agent.state import Question, QuestionType, Answer
+
+    state = InterviewState(session_id="test", resume_id="r1")
+    state = replace(state,
+        current_question=Question(content="什么是 Redis?", question_type=QuestionType.INITIAL),
+        current_question_id="q_test",
+        answers={"q_test": Answer(question_id="q_test", content="Redis 是一个内存数据库", deviation_score=1.0)},
+        mastered_questions={"q_test": {"answer": "Redis 是一个内存数据库", "standard_answer": "Redis 是一个开源的内存数据结构存储..."}},
+    )
 
     with patch("src.agent.evaluate_agent.get_llm_service") as mock:
         service = AsyncMock()
@@ -95,12 +99,7 @@ async def test_evaluate_with_standard_success():
         })
         mock.return_value = service
 
-        result = await evaluate_with_standard(
-            state,
-            question="什么是 Redis?",
-            user_answer="Redis 是一个内存数据库",
-            standard_answer="Redis 是一个开源的内存数据结构存储...",
-        )
+        result = await evaluate_with_standard(state)
 
         assert "current_answer" in result
         assert result["current_answer"].deviation_score == 0.8
@@ -109,7 +108,15 @@ async def test_evaluate_with_standard_success():
 @pytest.mark.asyncio
 async def test_evaluate_without_standard_success():
     """测试无标准答案评估"""
-    state = InterviewState(session_id="test", resume_id="r1", current_question_id="q_test2")
+    from dataclasses import replace
+    from src.agent.state import Question, QuestionType, Answer
+
+    state = InterviewState(session_id="test", resume_id="r1")
+    state = replace(state,
+        current_question=Question(content="介绍一下你自己", question_type=QuestionType.INITIAL),
+        current_question_id="q_test2",
+        answers={"q_test2": Answer(question_id="q_test2", content="我叫张三，有三年开发经验", deviation_score=1.0)},
+    )
 
     with patch("src.agent.evaluate_agent.get_llm_service") as mock:
         service = AsyncMock()
@@ -121,11 +128,7 @@ async def test_evaluate_without_standard_success():
         })
         mock.return_value = service
 
-        result = await evaluate_without_standard(
-            state,
-            question="介绍一下你自己",
-            user_answer="我叫张三，有三年开发经验",
-        )
+        result = await evaluate_without_standard(state)
 
         assert "current_answer" in result
         assert result["current_answer"].deviation_score == 0.6
@@ -134,19 +137,23 @@ async def test_evaluate_without_standard_success():
 @pytest.mark.asyncio
 async def test_evaluate_with_standard_error_handling():
     """测试评估失败时的错误处理"""
-    state = InterviewState(session_id="test", resume_id="r1", current_question_id="q_test3")
+    from dataclasses import replace
+    from src.agent.state import Question, QuestionType, Answer
+
+    state = InterviewState(session_id="test", resume_id="r1")
+    state = replace(state,
+        current_question=Question(content="什么是 Redis?", question_type=QuestionType.INITIAL),
+        current_question_id="q_test3",
+        answers={"q_test3": Answer(question_id="q_test3", content="Redis 是一个内存数据库", deviation_score=1.0)},
+        mastered_questions={"q_test3": {"answer": "Redis 是一个内存数据库", "standard_answer": "Redis 是一个开源的内存数据结构存储..."}},
+    )
 
     with patch("src.agent.evaluate_agent.get_llm_service") as mock:
         service = AsyncMock()
         service.evaluate_answer = AsyncMock(side_effect=Exception("LLM error"))
         mock.return_value = service
 
-        result = await evaluate_with_standard(
-            state,
-            question="什么是 Redis?",
-            user_answer="Redis 是一个内存数据库",
-            standard_answer="Redis 是一个开源的内存数据结构存储...",
-        )
+        result = await evaluate_with_standard(state)
 
         # Should return default values on error
         assert "current_answer" in result

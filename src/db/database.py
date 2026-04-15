@@ -122,7 +122,12 @@ def get_database_manager() -> DatabaseManager:
     global _default_db
 
     if _default_db is None:
-        from src.config import get_database_config
+        # Import from src.config module (not package) to avoid conflict with src/config/ package
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("config_module", "src/config.py")
+        config_module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(config_module)
+        get_database_config = config_module.get_database_config
 
         cfg = get_database_config()
         _default_db = DatabaseManager(cfg.url)

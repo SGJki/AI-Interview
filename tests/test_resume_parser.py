@@ -102,5 +102,35 @@ class TestExtractWorkExperience:
         assert experience[0].duration == ""
 
 
+class TestLLMEnhancedResumeParser:
+    """Test LLMEnhancedResumeParser class"""
+
+    @pytest.mark.asyncio
+    async def test_enhance_parse_with_empty_raw_text(self):
+        """测试空 raw_text 时直接返回"""
+        from src.services.resume_parser import LLMEnhancedResumeParser
+
+        parser = LLMEnhancedResumeParser(llm=MagicMock())
+        resume_info = ResumeInfo(raw_text="")
+
+        result = await parser.enhance_parse(resume_info)
+        assert result.raw_text == ""
+
+    @pytest.mark.asyncio
+    async def test_enhance_parse_updates_skills(self):
+        """测试 LLM 增强更新技能"""
+        from src.services.resume_parser import LLMEnhancedResumeParser
+        from unittest.mock import AsyncMock
+
+        parser = LLMEnhancedResumeParser(llm=MagicMock())
+        parser.llm.ainvoke = AsyncMock(return_value=MagicMock(content='{"skills": ["Python", "Go", "Kubernetes"]}'))
+
+        resume_info = ResumeInfo(raw_text="熟悉 Python 和 Go")
+        result = await parser.enhance_parse(resume_info)
+
+        assert "Python" in result.skills
+        assert "Go" in result.skills
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

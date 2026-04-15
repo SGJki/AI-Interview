@@ -196,33 +196,26 @@ class InterviewService:
 
         if result.degraded:
             logger.info(f"Session {self.session_id} recovered in degraded mode: {result.degraded_reason}")
-            # 降级恢复：需要重建上下文，但保留快照中的进度信息
-            self.state = result.snapshot
-            self.context = InterviewContext(
-                session_id=self.session_id,
-                resume_id=self.resume_id,
-                knowledge_base_id=self.knowledge_base_id,
-                interview_mode=self.interview_mode,
-                feedback_mode=self.feedback_mode,
-                error_threshold=self.error_threshold,
-            )
-            # 从快照恢复关键状态
+        else:
+            logger.info(f"Session {self.session_id} recovered with cache hit rate: {result.cache_hit_rate:.2%}")
+
+        # 恢复状态和上下文
+        self.state = result.snapshot
+        self.context = InterviewContext(
+            session_id=self.session_id,
+            resume_id=self.resume_id,
+            knowledge_base_id=self.knowledge_base_id,
+            interview_mode=self.interview_mode,
+            feedback_mode=self.feedback_mode,
+            error_threshold=self.error_threshold,
+        )
+
+        # 降级恢复时从快照补充关键状态
+        if result.degraded:
             if hasattr(result.snapshot, 'current_series'):
                 self.state.current_series = result.snapshot.current_series
             if hasattr(result.snapshot, 'error_count'):
                 self.state.error_count = result.snapshot.error_count
-        else:
-            logger.info(f"Session {self.session_id} recovered with cache hit rate: {result.cache_hit_rate:.2%}")
-            # 正常恢复：缓存有效，可以使用压缩后的上下文
-            self.state = result.snapshot
-            self.context = InterviewContext(
-                session_id=self.session_id,
-                resume_id=self.resume_id,
-                knowledge_base_id=self.knowledge_base_id,
-                interview_mode=self.interview_mode,
-                feedback_mode=self.feedback_mode,
-                error_threshold=self.error_threshold,
-            )
 
         # 加载知识库（如有）
         if self.knowledge_base_id:

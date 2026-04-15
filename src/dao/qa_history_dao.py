@@ -55,12 +55,12 @@ class QAHistoryDAO:
         await self.session.refresh(qa_history)
         return qa_history
 
-    async def find_by_id(self, qa_id: UUID) -> Optional[QAHistory]:
+    async def find_by_id(self, qa_id: int) -> Optional[QAHistory]:
         """
-        Find Q&A history entry by ID.
+        Find Q&A history entry by BIGINT ID.
 
         Args:
-            qa_id: QAHistory UUID
+            qa_id: QAHistory BIGINT ID
 
         Returns:
             QAHistory entry if found, None otherwise
@@ -70,12 +70,12 @@ class QAHistoryDAO:
         )
         return result.scalar_one_or_none()
 
-    async def find_by_session_id(self, session_id: UUID) -> list[QAHistory]:
+    async def find_by_session_id(self, session_id: int) -> list[QAHistory]:
         """
         Find all Q&A history entries for an interview session.
 
         Args:
-            session_id: InterviewSession UUID
+            session_id: InterviewSession BIGINT ID
 
         Returns:
             List of Q&A history entries
@@ -89,14 +89,14 @@ class QAHistoryDAO:
 
     async def find_by_series(
         self,
-        session_id: UUID,
+        session_id: int,
         series: int,
     ) -> list[QAHistory]:
         """
         Find all Q&A history entries for a specific series.
 
         Args:
-            session_id: InterviewSession UUID
+            session_id: InterviewSession BIGINT ID
             series: Series number
 
         Returns:
@@ -132,12 +132,12 @@ class QAHistoryDAO:
         )
         return list(result.scalars().all())
 
-    async def delete(self, qa_id: UUID) -> bool:
+    async def delete(self, qa_id: int) -> bool:
         """
-        Delete Q&A history entry by ID.
+        Delete Q&A history entry by BIGINT ID.
 
         Args:
-            qa_id: QAHistory UUID
+            qa_id: QAHistory BIGINT ID
 
         Returns:
             True if deleted, False if not found

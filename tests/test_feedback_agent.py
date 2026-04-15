@@ -73,35 +73,26 @@ class TestFeedBackAgentFunctions:
         import asyncio
         assert asyncio.iscoroutinefunction(generate_fallback_feedback)
 
-    def test_generate_correction_takes_state_question_user_answer_and_evaluation(self):
-        """Test generate_correction function signature"""
+    def test_generate_correction_takes_only_state(self):
+        """Test generate_correction function signature extracts from state"""
         import inspect
         sig = inspect.signature(generate_correction)
         params = list(sig.parameters.keys())
-        assert "state" in params
-        assert "question" in params
-        assert "user_answer" in params
-        assert "evaluation" in params
+        assert params == ["state"]
 
-    def test_generate_guidance_takes_state_question_user_answer_and_evaluation(self):
-        """Test generate_guidance function signature"""
+    def test_generate_guidance_takes_only_state(self):
+        """Test generate_guidance function signature extracts from state"""
         import inspect
         sig = inspect.signature(generate_guidance)
         params = list(sig.parameters.keys())
-        assert "state" in params
-        assert "question" in params
-        assert "user_answer" in params
-        assert "evaluation" in params
+        assert params == ["state"]
 
-    def test_generate_comment_takes_state_question_user_answer_and_evaluation(self):
-        """Test generate_comment function signature"""
+    def test_generate_comment_takes_only_state(self):
+        """Test generate_comment function signature extracts from state"""
         import inspect
         sig = inspect.signature(generate_comment)
         params = list(sig.parameters.keys())
-        assert "state" in params
-        assert "question" in params
-        assert "user_answer" in params
-        assert "evaluation" in params
+        assert params == ["state"]
 
     def test_generate_fallback_feedback_takes_only_state(self):
         """Test generate_fallback_feedback function signature"""
@@ -117,9 +108,16 @@ async def test_generate_correction_success():
     """测试生成纠正反馈"""
     from unittest.mock import AsyncMock, patch
     from src.agent.feedback_agent import get_llm_service
-    from src.agent.state import Feedback, FeedbackType
+    from src.agent.state import Feedback, FeedbackType, Question, QuestionType, Answer
+    from dataclasses import replace
 
-    state = InterviewState(session_id="test", resume_id="r1", current_question_id="q_test")
+    state = InterviewState(session_id="test", resume_id="r1")
+    state = replace(state,
+        current_question=Question(content="什么是 Redis?", question_type=QuestionType.INITIAL),
+        current_question_id="q_test",
+        answers={"q_test": Answer(question_id="q_test", content="Redis 是一个数据库", deviation_score=0.2)},
+        evaluation_results={"q_test": {"deviation_score": 0.2, "is_correct": False}},
+    )
 
     with patch("src.agent.feedback_agent.get_llm_service") as mock:
         service = AsyncMock()
@@ -132,12 +130,7 @@ async def test_generate_correction_success():
         ))
         mock.return_value = service
 
-        result = await generate_correction(
-            state,
-            question="什么是 Redis?",
-            user_answer="Redis 是一个数据库",
-            evaluation={"deviation_score": 0.2, "is_correct": False}
-        )
+        result = await generate_correction(state)
 
         assert "last_feedback" in result
         assert result["last_feedback"].feedback_type == FeedbackType.CORRECTION
@@ -149,9 +142,16 @@ async def test_generate_guidance_success():
     """测试生成引导反馈"""
     from unittest.mock import AsyncMock, patch
     from src.agent.feedback_agent import get_llm_service
-    from src.agent.state import Feedback, FeedbackType
+    from src.agent.state import Feedback, FeedbackType, Question, QuestionType, Answer
+    from dataclasses import replace
 
-    state = InterviewState(session_id="test", resume_id="r1", current_question_id="q_test2")
+    state = InterviewState(session_id="test", resume_id="r1")
+    state = replace(state,
+        current_question=Question(content="介绍一下 Redis 的持久化机制", question_type=QuestionType.INITIAL),
+        current_question_id="q_test2",
+        answers={"q_test2": Answer(question_id="q_test2", content="Redis 可以做 RDB 和 AOF 持久化", deviation_score=0.5)},
+        evaluation_results={"q_test2": {"deviation_score": 0.5, "is_correct": True}},
+    )
 
     with patch("src.agent.feedback_agent.get_llm_service") as mock:
         service = AsyncMock()
@@ -164,12 +164,7 @@ async def test_generate_guidance_success():
         ))
         mock.return_value = service
 
-        result = await generate_guidance(
-            state,
-            question="介绍一下 Redis 的持久化机制",
-            user_answer="Redis 可以做 RDB 和 AOF 持久化",
-            evaluation={"deviation_score": 0.5, "is_correct": True}
-        )
+        result = await generate_guidance(state)
 
         assert "last_feedback" in result
         assert result["last_feedback"].feedback_type == FeedbackType.GUIDANCE
@@ -181,9 +176,16 @@ async def test_generate_comment_success():
     """测试生成评论反馈"""
     from unittest.mock import AsyncMock, patch
     from src.agent.feedback_agent import get_llm_service
-    from src.agent.state import Feedback, FeedbackType
+    from src.agent.state import Feedback, FeedbackType, Question, QuestionType, Answer
+    from dataclasses import replace
 
-    state = InterviewState(session_id="test", resume_id="r1", current_question_id="q_test3")
+    state = InterviewState(session_id="test", resume_id="r1")
+    state = replace(state,
+        current_question=Question(content="你使用过哪些缓存方案？", question_type=QuestionType.INITIAL),
+        current_question_id="q_test3",
+        answers={"q_test3": Answer(question_id="q_test3", content="我主要使用 Redis 作为缓存，配合本地缓存一起使用", deviation_score=0.8)},
+        evaluation_results={"q_test3": {"deviation_score": 0.8, "is_correct": True}},
+    )
 
     with patch("src.agent.feedback_agent.get_llm_service") as mock:
         service = AsyncMock()
@@ -196,12 +198,7 @@ async def test_generate_comment_success():
         ))
         mock.return_value = service
 
-        result = await generate_comment(
-            state,
-            question="你使用过哪些缓存方案？",
-            user_answer="我主要使用 Redis 作为缓存，配合本地缓存一起使用",
-            evaluation={"deviation_score": 0.8, "is_correct": True}
-        )
+        result = await generate_comment(state)
 
         assert "last_feedback" in result
         assert result["last_feedback"].feedback_type == FeedbackType.COMMENT
@@ -213,9 +210,16 @@ async def test_generate_correction_updates_feedbacks_dict():
     """测试 generate_correction 更新 feedbacks 字典"""
     from unittest.mock import AsyncMock, patch
     from src.agent.feedback_agent import get_llm_service
-    from src.agent.state import Feedback, FeedbackType
+    from src.agent.state import Feedback, FeedbackType, Question, QuestionType, Answer
+    from dataclasses import replace
 
-    state = InterviewState(session_id="test", resume_id="r1", current_question_id="q_test7")
+    state = InterviewState(session_id="test", resume_id="r1")
+    state = replace(state,
+        current_question=Question(content="什么是 Redis?", question_type=QuestionType.INITIAL),
+        current_question_id="q_test7",
+        answers={"q_test7": Answer(question_id="q_test7", content="Redis 是一个数据库", deviation_score=0.1)},
+        evaluation_results={"q_test7": {"deviation_score": 0.1, "is_correct": False}},
+    )
 
     with patch("src.agent.feedback_agent.get_llm_service") as mock:
         service = AsyncMock()
@@ -228,12 +232,7 @@ async def test_generate_correction_updates_feedbacks_dict():
         ))
         mock.return_value = service
 
-        result = await generate_correction(
-            state,
-            question="什么是 Redis?",
-            user_answer="Redis 是一个数据库",
-            evaluation={"deviation_score": 0.1, "is_correct": False}
-        )
+        result = await generate_correction(state)
 
         assert "feedbacks" in result
         assert "q_test7" in result["feedbacks"]

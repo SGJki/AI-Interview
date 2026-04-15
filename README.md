@@ -22,7 +22,7 @@ AI Interview Agent 能够：
 | 关系数据库 | PostgreSQL | 主数据存储 |
 | 缓存 | Redis | 短中期记忆、会话管理 |
 | API 框架 | FastAPI | 高性能 API + SSE 流式 |
-| 测试 | pytest + pytest-asyncio | 300+ 测试用例 |
+| 测试 | pytest + pytest-asyncio | 698 测试用例 |
 
 ## 快速开始
 
@@ -187,29 +187,274 @@ curl http://localhost:8000/health
 | `evaluate_agent.py` | EvaluateAgent subgraph - Answer evaluation |
 | `feedback_agent.py` | FeedBackAgent subgraph - Feedback generation |
 
-**Multi-Agent Architecture:**
+## Multi-Agent 架构
 
-```
-Main Orchestrator (orchestrator_graph)
-├── ResumeAgent (resume_agent_graph)
-│   └── parse_resume, fetch_old_resume
-├── KnowledgeAgent (knowledge_agent_graph)
-│   └── shuffle_responsibilities, store_to_vector_db, fetch_responsibility, find_standard_answer
-├── QuestionAgent (question_agent_graph)
-│   └── generate_warmup, generate_initial, generate_followup, deduplicate_check
-├── EvaluateAgent (evaluate_agent_graph)
-│   └── evaluate_with_standard, evaluate_without_standard
-└── FeedBackAgent (feedback_agent_graph)
-    └── generate_correction, generate_guidance, generate_comment, generate_fallback_feedback
+### Agent 组成
+
+| Agent | 职责 | 核心节点 |
+|-------|------|---------|
+| **Main Orchestrator** | 主协调 Agent，规则驱动流程控制 | init, orchestrator, decide_next, final_feedback |
+| **ResumeAgent** | 简历解析与存储 | parse_resume, fetch_old_resume |
+| **KnowledgeAgent** | 知识库检索与职责管理 | shuffle_responsibilities, find_standard_answer |
+| **QuestionAgent** | 问题生成与去重 | generate_warmup, generate_initial, generate_followup |
+| **EvaluateAgent** | 回答评估 | evaluate_with_standard, evaluate_without_standard |
+| **FeedBackAgent** | 反馈生成 | generate_correction, generate_guidance, generate_comment |
+
+### Agent 流转图
+
+```mermaid
+flowchart TB
+    subgraph Orchestrator
+        A[START] --> B[init]
+        B --> C[orchestrator]
+        C --> D{decide_next}
+    end
+
+    subgraph Agents
+        D -->|question_agent| E[QuestionAgent]
+        D -->|resume_agent| F[ResumeAgent]
+        D -->|knowledge_agent| G[KnowledgeAgent]
+        D -->|evaluate_agent| H[EvaluateAgent]
+        D -->|feedback_agent| I[FeedBackAgent]
+    end
+
+    E --> H
+    H --> I
+    I --> D
+
+    D -->|final_feedback| J[final_feedback]
+    J --> K[END]
+
+    style Orchestrator fill:#e1f5fe
+    style Agents fill:#f3e5f5
 ```
 
-**InterviewState new fields:**
-- `asked_logical_questions: set[str]` - Questions with deviation >= 0.8
-- `mastered_questions: dict[str, dict]` - question_id -> {answer, standard_answer}
-- `all_responsibilities_used: bool` - All responsibilities exhausted
-- `review_retry_count: int` - Review retry counter
-- `last_review_feedback: Optional[str]` - Last review feedback
-- `phase: Literal["init", "warmup", "initial", "followup", "final_feedback"]` - Current phase
+### 主流程时序图
+
+```mermaid
+sequenceDiagram
+    participant User as 用户
+    participant Orch as Orchestrator
+    participant QA as QuestionAgent
+    participant KA as KnowledgeAgent
+    participant EA as EvaluateAgent
+    participant FB as FeedBackAgent
+
+    User->>Orch: 开始面试
+    Orch->>Orch: init phase
+    Orch->>QA: 生成预热问题
+    QA-->>User: 预热问题
+    User->>Orch: 回答
+
+    loop 面试循环
+        Orch->>KA: 查找标准答案
+        KA-->>Orch: 标准答案/无标准答案
+        Orch->>EA: 评估回答
+        EA-->>Orch: 评估结果
+        Orch->>FB: 生成反馈
+        FB-->>User: 反馈
+        Orch->>QA: 生成追问/下一问题
+        QA-->>User: 问题
+        User->>Orch: 回答
+    end
+
+    Orch->>Orch: final_feedback
+    Orch-->>User: 最终报告
+```
+
+### 各 Agent 内部运行详解
+
+#### 1. ResumeAgent
+
+```mermaid
+flowchart LR
+    subgraph ResumeAgent
+        A{新简历?} -->|Yes| B[parse_resume]
+        A -->|No| C[fetch_old_resume]
+        B --> D[存储到DB]
+        B --> E[提取responsibilities]
+        E --> F[Review3审核]
+        F -->|通过| G[传给KnowledgeAgent]
+        F -->|失败| H[反馈环重试]
+        C --> G
+    end
+```
+
+**职责**: 解析新简历文本或获取已有简历，提取结构化信息。
+
+| 节点 | 功能 |
+|------|------|
+| `parse_resume` | 调用 LLM 解析简历文本，提取 skills、projects、responsibilities |
+| `fetch_old_resume` | 从数据库读取已有简历 |
+
+#### 2. KnowledgeAgent
+
+```mermaid
+flowchart TB
+    subgraph KnowledgeAgent
+        A[接收responsibilities] --> B[shuffle_responsibilities]
+        B --> C[随机打乱顺序]
+        C --> D[取第一条]
+        D --> E[传给QuestionAgent]
+        D --> F[其余存入向量库]
+
+        G[标准答案查询] --> H{从mastered_questions查找}
+        H -->|找到| I[Review3审核]
+        I -->|通过| J[标准答案传给EvaluateAgent]
+        I -->|失败| K[重试一次]
+        K -->|失败| L[告知无标准答案]
+        H -->|未找到| L
+    end
+```
+
+**职责**: 职责列表随机化、向量库存储、标准答案查找。
+
+| 节点 | 功能 |
+|------|------|
+| `shuffle_responsibilities` | 随机打乱职责列表，确保面试问题顺序随机 |
+| `store_to_vector_db` | 将职责存入 pgvector 向量数据库 |
+| `find_standard_answer` | 在 mastered_questions 中查找相似问题的标准答案 |
+
+#### 3. QuestionAgent
+
+```mermaid
+flowchart TB
+    subgraph QuestionAgent
+        A{check_phase} -->|warmup| B[generate_warmup]
+        A -->|initial| C[generate_initial]
+        A -->|followup| D{deduplicate_check}
+
+        D -->|不重复| E[generate_followup]
+        D -->|重复且dev>=0.8| F[跳过]
+        D -->|重复且dev<0.8| E
+
+        E --> G[Review3审核]
+        G -->|通过| H[输出问题]
+        G -->|失败| I[反馈环]
+
+        B --> H
+        C --> H
+    end
+```
+
+**职责**: 生成预热/初始/追问问题，问题去重检查。
+
+| 节点 | 功能 |
+|------|------|
+| `generate_warmup` | 生成预热问题，让候选人放松 |
+| `generate_initial` | 基于简历和职责生成初始问题 |
+| `generate_followup` | 基于原始问题、用户回答生成追问 |
+| `deduplicate_check` | 检查问题是否重复（逻辑重复检测） |
+
+#### 4. EvaluateAgent
+
+```mermaid
+flowchart TB
+    subgraph EvaluateAgent
+        A{有标准答案?} -->|Yes| B[evaluate_with_standard]
+        A -->|No| C[evaluate_without_standard]
+
+        B --> D[Review3审核]
+        C --> D
+        D -->|通过| E[输出评估结果]
+        D -->|失败| F[反馈环重试]
+    end
+```
+
+**职责**: 使用标准答案或无标准答案模式评估用户回答。
+
+| 节点 | 功能 |
+|------|------|
+| `evaluate_with_standard` | 有标准答案时，基于标准答案评估偏差度 |
+| `evaluate_without_standard` | 无标准答案时，基于问答质量评估 |
+
+**评估输出**:
+- `deviation_score`: 偏差分数 (0-1)
+- `is_correct`: 是否正确
+- `key_points`: 关键点评
+- `suggestions`: 改进建议
+
+#### 5. FeedBackAgent
+
+```mermaid
+flowchart TB
+    subgraph FeedBackAgent
+        A[接收evaluation] --> B{dev < 0.3?}
+        B -->|Yes| C[CORRECTION纠错]
+        B -->|No| D{dev < 0.6?}
+        D -->|Yes| E[GUIDANCE引导]
+        D -->|No| F[COMMENT点评]
+
+        C --> G[Review3审核]
+        E --> G
+        F --> G
+        G -->|通过| H[输出反馈]
+        G -->|失败| I[反馈环]
+    end
+```
+
+**职责**: 根据偏差分数生成不同类型的反馈。
+
+| 反馈类型 | 触发条件 | 说明 |
+|---------|---------|------|
+| `correction` | dev < 0.3 | 直接给出正确答案 |
+| `guidance` | 0.3 ≤ dev < 0.6 | 提示性追问引导 |
+| `comment` | dev ≥ 0.6 | 正面鼓励继续深入 |
+
+### Review 审核机制
+
+每个 Agent 输出后经过 **3 实例投票审核**：
+
+```mermaid
+flowchart LR
+    A[Agent输出] --> B[Review Voter 1]
+    A --> C[Review Voter 2]
+    A --> D[Review Voter 3]
+
+    B --> E{通过?}
+    C --> E
+    D --> E
+
+    E -->|≥2通过| F[输出给下一阶段]
+    E -->|<2通过| G[反馈环重试]
+```
+
+**审核标准**:
+
+| Agent | 审核项 |
+|-------|-------|
+| ResumeAgent | responsibilities 非空、技能 ≥3、项目 ≥1 |
+| KnowledgeAgent | is_used=false、SessionID 匹配、标准答案契合 |
+| QuestionAgent | 问题不重复、追问基于 Q+A+E |
+| EvaluateAgent | 评估基于 Q+A、评估合理 |
+| FeedBackAgent | 反馈基于 Q+A+E、反馈类型匹配 |
+
+### 追问退出条件
+
+```mermaid
+flowchart TB
+    A{dev >= 0.8 且 depth >= max?} -->|Yes| B[退出追问]
+    A -->|No| C[继续生成追问]
+```
+
+- `deviation_score >= 0.8` **且** `depth >= max_followup_depth` → 退出追问
+- `deviation_score >= 0.8` → 该逻辑问题去重，不再出现
+- `deviation_score < 0.8` → 同一逻辑问题允许重复
+
+### 顶层流程
+
+```mermaid
+stateDiagram-v2
+    [*] --> init
+    init --> orchestrator
+    orchestrator --> decide_next
+    decide_next --> question_agent: 继续面试
+    decide_next --> final_feedback: 结束
+    question_agent --> evaluate_agent
+    evaluate_agent --> feedback_agent
+    feedback_agent --> decide_next
+    final_feedback --> [*]
+```
 
 ### RAG 工具 (src/tools/)
 
@@ -547,8 +792,8 @@ uv run pytest --cov=src --cov-report=term-missing
 
 **测试统计:**
 
-- 总计: 430+ 测试用例
-- 覆盖: Agent, RAG, API, 数据库, 服务层
+- 总计: 698 测试用例
+- 覆盖: Agent, RAG, API, 数据库, 服务层, 优雅关闭, Redis 异步化
 
 ## 项目结构
 
@@ -652,6 +897,47 @@ curl -X POST "http://localhost:8000/interview/end?session_id=s1"
 - [ ] 集成 Spring Boot 应用
 - [ ] 多租户支持
 - [ ] 前端界面优化
+
+## 更新日志
+
+### 2026-04-13 高并发/高可用优化
+
+#### 已完成
+
+| 优化项 | 文件 | 说明 |
+|--------|------|------|
+| **优雅关闭机制** | `src/core/lifespan_manager.py` | 连接追踪、排空机制、分阶段关闭 |
+| **健康检查端点** | `src/main.py` | `/health` `/health/ready` `/health/startup` |
+| **SSE 连接追踪** | `src/api/interview.py` | 追踪活跃连接，关闭时排空 |
+| **Redis 异步化** | `src/tools/memory_tools.py` | 同步→异步，解除事件循环阻塞 |
+| **Context Catch 异步化** | `src/core/context_catch.py` | 同步→异步，解除事件循环阻塞 |
+
+#### 技术细节
+
+**优雅关闭 (Graceful Shutdown)**
+- 关闭分阶段：停止接受新连接 → 排空活跃连接 → 关闭 DB → 关闭 Redis
+- 连接追踪器追踪所有活跃 SSE 连接
+- 30s 排空超时，强制关闭
+
+**健康检查端点**
+- `GET /health` - 存活检查
+- `GET /health/ready` - 就绪检查（含 DB/Redis 依赖检查）
+- `GET /health/startup` - 启动探针（K8s startup probe）
+
+**Redis 异步化收益**
+- 高并发吞吐提升：从同步串行 → 异步并行
+- 事件循环不再阻塞
+- 并发 100 请求延迟：从 ~1000ms → ~10ms
+
+#### 待优化项
+
+| 优先级 | 优化项 | 风险 |
+|--------|--------|------|
+| P0 | 增大数据库连接池 (pool_size=50+) | 连接不足 |
+| P0 | LLM 熔断器 + 重试机制 | 级联故障 |
+| P0 | Redis Sentinel 高可用 | 单点故障 |
+| P1 | SSE 连接数限制 | 资源耗尽 |
+| P2 | 请求队列化 | 高峰排队 |
 
 ## License
 

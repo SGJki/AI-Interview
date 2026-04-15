@@ -73,11 +73,21 @@ async def end_interview_node(state: InterviewState) -> dict:
     from src.tools.memory_tools import clear_session_memory
     from src.dao.interview_session_dao import InterviewSessionDAO
     from src.db.database import get_db_session
+    from uuid import UUID
 
     # 1. 写入 PostgreSQL
     async for session in get_db_session():
         dao = InterviewSessionDAO(session)
-        await dao.end_session(state.session_id)
+        # state.session_id is UUID string, need to find BIGINT id first
+        try:
+            session_uuid = UUID(state.session_id) if state.session_id else None
+        except ValueError:
+            session_uuid = None
+
+        if session_uuid:
+            interview_session = await dao.find_by_uuid(session_uuid)
+            if interview_session:
+                await dao.end_session(interview_session.id)
         break
 
     # 2. 清理 Redis

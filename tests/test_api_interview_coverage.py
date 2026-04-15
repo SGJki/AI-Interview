@@ -333,7 +333,11 @@ class TestGetQuestionEndpoint:
                 )
                 MockService.return_value = mock_service
 
-                response = await get_question(session_id="test-session", stream=False)
+                # Create mock request
+                mock_request = MagicMock()
+                mock_request.client.host = "127.0.0.1"
+
+                response = await get_question(request=mock_request, session_id="test-session", stream=False)
 
                 assert isinstance(response, EventSourceResponse)
 
@@ -359,8 +363,12 @@ class TestSubmitAnswerEndpoint:
             mock_manager.load_interview_state = AsyncMock(return_value=None)
             MockSM.return_value = mock_manager
 
+            # Create mock HTTP request
+            mock_http_request = MagicMock()
+            mock_http_request.client.host = "127.0.0.1"
+
             # SSE endpoint returns EventSourceResponse, not raises HTTPException
-            response = await submit_answer(request)
+            response = await submit_answer(http_request=mock_http_request, request=request)
             # It returns an EventSourceResponse, which we can verify by checking it's not None
             assert response is not None
 
@@ -422,7 +430,11 @@ class TestSubmitAnswerEndpoint:
                 mock_service.error_threshold = 2
                 MockService.return_value = mock_service
 
-                response = await submit_answer(request)
+                # Create mock HTTP request
+                mock_http_request = MagicMock()
+                mock_http_request.client.host = "127.0.0.1"
+
+                response = await submit_answer(http_request=mock_http_request, request=request)
 
         # Now returns EventSourceResponse (SSE) instead of QAResponse
         assert isinstance(response, EventSourceResponse)

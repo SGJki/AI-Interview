@@ -42,17 +42,30 @@ class ResponsibilityStorageService:
         if not resume_id:
             async for session in get_db_session():
                 project_dao = ProjectDAO(session)
-                projects = await project_dao.find_by_id(project_id)
-                if projects:
-                    resume_id = projects[0].resume_id
+                project = await project_dao.find_by_uuid(project_id)
+                if project:
+                    resume_id = project.resume_id  # resume_id is already BIGINT
                 break
+
+        # 获取 project_id (BIGINT) 用于保存
+        project_id_int = None
+        async for session in get_db_session():
+            project_dao = ProjectDAO(session)
+            project = await project_dao.find_by_uuid(project_id)
+            if project:
+                project_id_int = project.id  # BIGINT
+            break
+
+        if not project_id_int:
+            logger.error(f"Project not found: {project_id}")
+            return saved_entries
 
         async for session in get_db_session():
             dao = KnowledgeBaseDAO(session)
 
             for idx, resp_text in enumerate(responsibilities):
                 kb = KnowledgeBase(
-                    project_id=project_id,
+                    project_id=project_id_int,  # BIGINT
                     type="responsibility",
                     content=resp_text,
                     responsibility_id=idx,

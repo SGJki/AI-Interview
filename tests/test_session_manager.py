@@ -5,6 +5,7 @@ Phase 5: Redis Session Management - TDD Tests
 """
 
 import pytest
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime
 from src.agent.state import (
@@ -22,14 +23,42 @@ from src.tools.memory_tools import (
 )
 
 
+async def async_iter(items):
+    """Helper to create async iterator from list"""
+    for item in items:
+        yield item
+
+
+class AsyncIteratorMock:
+    """Mock for async Redis scan_iter - returns async iterator"""
+    def __init__(self, items):
+        self.items = items
+
+    def __call__(self, match=None):
+        return async_iter(self.items)
+
+    def __aiter__(self):
+        return async_iter(self.items).__aiter__()
+
+
 class TestSessionStateManager:
     """Test SessionStateManager for Redis session persistence"""
 
     @pytest.fixture
     def mock_redis(self):
-        """Create a mock Redis client"""
+        """Create a mock Redis client with async methods"""
         with patch('src.tools.memory_tools.get_redis_client') as mock:
             client = MagicMock()
+            # Set async methods to AsyncMock
+            client.setex = AsyncMock(return_value=True)
+            client.get = AsyncMock(return_value=None)
+            client.delete = AsyncMock(return_value=True)
+            client.keys = AsyncMock(return_value=[])
+            client.scan_iter = AsyncIteratorMock([])
+            client.exists = AsyncMock(return_value=0)
+            client.set = AsyncMock(return_value=True)
+            client.ttl = AsyncMock(return_value=-2)
+            client.expire = AsyncMock(return_value=True)
             mock.return_value = client
             yield client
 
@@ -204,9 +233,19 @@ class TestSessionHealthMonitor:
 
     @pytest.fixture
     def mock_redis(self):
-        """Create a mock Redis client"""
+        """Create a mock Redis client with async methods"""
         with patch('src.tools.memory_tools.get_redis_client') as mock:
             client = MagicMock()
+            # Set async methods to AsyncMock
+            client.setex = AsyncMock(return_value=True)
+            client.get = AsyncMock(return_value=None)
+            client.delete = AsyncMock(return_value=True)
+            client.keys = AsyncMock(return_value=[])
+            client.scan_iter = AsyncIteratorMock([])
+            client.exists = AsyncMock(return_value=0)
+            client.set = AsyncMock(return_value=True)
+            client.ttl = AsyncMock(return_value=-2)
+            client.expire = AsyncMock(return_value=True)
             mock.return_value = client
             yield client
 
@@ -218,8 +257,8 @@ class TestSessionHealthMonitor:
     @pytest.mark.asyncio
     async def test_get_active_session_count(self, health_monitor, mock_redis):
         """Test getting count of active sessions"""
-        # Mock scan_iter returning some sessions
-        mock_redis.scan_iter.return_value = iter([
+        # Mock scan_iter returning some sessions (async iterator)
+        mock_redis.scan_iter = AsyncIteratorMock([
             "interview:session-1:state",
             "interview:session-2:state",
             "interview:session-3:state",
@@ -321,9 +360,19 @@ class TestSessionRecovery:
 
     @pytest.fixture
     def mock_redis(self):
-        """Create a mock Redis client"""
+        """Create a mock Redis client with async methods"""
         with patch('src.tools.memory_tools.get_redis_client') as mock:
             client = MagicMock()
+            # Set async methods to AsyncMock
+            client.setex = AsyncMock(return_value=True)
+            client.get = AsyncMock(return_value=None)
+            client.delete = AsyncMock(return_value=True)
+            client.keys = AsyncMock(return_value=[])
+            client.scan_iter = AsyncIteratorMock([])
+            client.exists = AsyncMock(return_value=0)
+            client.set = AsyncMock(return_value=True)
+            client.ttl = AsyncMock(return_value=-2)
+            client.expire = AsyncMock(return_value=True)
             mock.return_value = client
             yield client
 
@@ -407,9 +456,19 @@ class TestSessionExpiration:
 
     @pytest.fixture
     def mock_redis(self):
-        """Create a mock Redis client"""
+        """Create a mock Redis client with async methods"""
         with patch('src.tools.memory_tools.get_redis_client') as mock:
             client = MagicMock()
+            # Set async methods to AsyncMock
+            client.setex = AsyncMock(return_value=True)
+            client.get = AsyncMock(return_value=None)
+            client.delete = AsyncMock(return_value=True)
+            client.keys = AsyncMock(return_value=[])
+            client.scan_iter = AsyncIteratorMock([])
+            client.exists = AsyncMock(return_value=0)
+            client.set = AsyncMock(return_value=True)
+            client.ttl = AsyncMock(return_value=-2)
+            client.expire = AsyncMock(return_value=True)
             mock.return_value = client
             yield client
 

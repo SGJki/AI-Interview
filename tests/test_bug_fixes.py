@@ -96,7 +96,7 @@ class TestBug2OrchestratorUserEndRequested:
         result = decide_next_node(state)
 
         # Should route to question_agent in normal case
-        assert result == "question_agent"
+        assert result == {"next_action": "question_agent"}
 
 
 class TestBug1ShouldContinueFollowupFix:

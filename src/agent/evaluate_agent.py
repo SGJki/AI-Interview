@@ -23,13 +23,22 @@ def get_llm_service() -> InterviewLLMService:
 
 
 @async_retryable(max_attempts=3)
-async def evaluate_with_standard(
-    state: InterviewState,
-    question: str,
-    user_answer: str,
-    standard_answer: str,
-) -> dict:
-    """使用标准答案评估用户回答"""
+async def evaluate_with_standard(state: InterviewState) -> dict:
+    """使用标准答案评估用户回答
+
+    Extracts question, user_answer, and standard_answer from state.
+    """
+    # Extract from state
+    question = state.current_question.content if state.current_question else ""
+    question_id = state.current_question_id or ""
+    user_answer_obj = state.answers.get(question_id) if question_id else None
+    user_answer = user_answer_obj.content if user_answer_obj else ""
+
+    # Get standard_answer from mastered_questions if available
+    standard_answer = ""
+    if question_id and question_id in state.mastered_questions:
+        standard_answer = state.mastered_questions[question_id].get("standard_answer", "")
+
     llm_service = get_llm_service()
 
     try:
@@ -52,10 +61,10 @@ async def evaluate_with_standard(
             "suggestions": ["请详细描述你的经验"],
         }
 
-    question_id = state.current_question_id or f"q_{hash(question) % 10000}"
+    final_question_id = question_id or f"q_{hash(question) % 10000}"
 
     new_answer = Answer(
-        question_id=question_id,
+        question_id=final_question_id,
         content=user_answer,
         deviation_score=deviation_score,
     )
@@ -67,10 +76,10 @@ async def evaluate_with_standard(
         new_error_count = 0
 
     evaluation_results = getattr(state, "evaluation_results", {})
-    evaluation_results[question_id] = result
+    evaluation_results[final_question_id] = result
 
     return {
-        "answers": {**state.answers, question_id: new_answer},
+        "answers": {**state.answers, final_question_id: new_answer},
         "evaluation_results": evaluation_results,
         "error_count": new_error_count,
         "current_answer": new_answer,
@@ -78,12 +87,17 @@ async def evaluate_with_standard(
 
 
 @async_retryable(max_attempts=3)
-async def evaluate_without_standard(
-    state: InterviewState,
-    question: str,
-    user_answer: str,
-) -> dict:
-    """无标准答案时评估用户回答"""
+async def evaluate_without_standard(state: InterviewState) -> dict:
+    """无标准答案时评估用户回答
+
+    Extracts question and user_answer from state.
+    """
+    # Extract from state
+    question = state.current_question.content if state.current_question else ""
+    question_id = state.current_question_id or ""
+    user_answer_obj = state.answers.get(question_id) if question_id else None
+    user_answer = user_answer_obj.content if user_answer_obj else ""
+
     llm_service = get_llm_service()
 
     try:
@@ -106,10 +120,10 @@ async def evaluate_without_standard(
             "suggestions": ["请详细描述你的经验"],
         }
 
-    question_id = state.current_question_id or f"q_{hash(question) % 10000}"
+    final_question_id = question_id or f"q_{hash(question) % 10000}"
 
     new_answer = Answer(
-        question_id=question_id,
+        question_id=final_question_id,
         content=user_answer,
         deviation_score=deviation_score,
     )
@@ -121,10 +135,10 @@ async def evaluate_without_standard(
         new_error_count = 0
 
     evaluation_results = getattr(state, "evaluation_results", {})
-    evaluation_results[question_id] = result
+    evaluation_results[final_question_id] = result
 
     return {
-        "answers": {**state.answers, question_id: new_answer},
+        "answers": {**state.answers, final_question_id: new_answer},
         "evaluation_results": evaluation_results,
         "error_count": new_error_count,
         "current_answer": new_answer,

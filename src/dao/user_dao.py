@@ -48,18 +48,33 @@ class UserDAO:
         await self.session.refresh(user)
         return user
 
-    async def find_by_id(self, user_id: UUID) -> Optional[User]:
+    async def find_by_id(self, user_id: int) -> Optional[User]:
         """
-        Find user by ID.
+        Find user by BIGINT ID.
 
         Args:
-            user_id: User UUID
+            user_id: User BIGINT ID
 
         Returns:
             User if found, None otherwise
         """
         result = await self.session.execute(
             select(User).where(User.id == user_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def find_by_uuid(self, user_uuid: UUID) -> Optional[User]:
+        """
+        Find user by UUID.
+
+        Args:
+            user_uuid: User UUID
+
+        Returns:
+            User if found, None otherwise
+        """
+        result = await self.session.execute(
+            select(User).where(User.uuid == user_uuid)
         )
         return result.scalar_one_or_none()
 
@@ -94,12 +109,12 @@ class UserDAO:
         )
         return list(result.scalars().all())
 
-    async def delete(self, user_id: UUID) -> bool:
+    async def delete(self, user_id: int) -> bool:
         """
-        Delete user by ID.
+        Delete user by BIGINT ID.
 
         Args:
-            user_id: User UUID
+            user_id: User BIGINT ID
 
         Returns:
             True if deleted, False if not found

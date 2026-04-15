@@ -71,12 +71,20 @@ async def fetch_old_resume(state: InterviewState, resume_id: str) -> dict:
     """Fetch existing resume from database."""
     from src.dao.resume_dao import ResumeDAO
     from src.db.database import get_session
+    from uuid import UUID
 
     async with get_session() as session:
         dao = ResumeDAO(session)
-        resume = await dao.find_by_id(resume_id)
-        if resume:
-            return {"resume_context": resume.content, "resume_id": resume_id}
+        # resume_id is UUID string, use find_by_uuid
+        try:
+            resume_uuid = UUID(resume_id) if resume_id else None
+        except ValueError:
+            return {"resume_context": "", "resume_id": resume_id}
+
+        if resume_uuid:
+            resume = await dao.find_by_uuid(resume_uuid)
+            if resume:
+                return {"resume_context": resume.content, "resume_id": resume_id}
         return {"resume_context": "", "resume_id": resume_id}
 
 def create_resume_agent_graph() -> StateGraph:

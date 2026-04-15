@@ -1,0 +1,1 @@
+{"nodes": [], "edges": [{"source": "question_agent", "target": "skill_aware_prompt", "relation": "calls", "confidence": "EXTRACTED", "confidence_score": 1.0, "source_file": "src/agent/skills/example_agent_integration.md", "source_location": null, "weight": 1.0}], "hyperedges": []}

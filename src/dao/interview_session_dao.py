@@ -53,12 +53,12 @@ class InterviewSessionDAO:
         await self.session.refresh(interview_session)
         return interview_session
 
-    async def find_by_id(self, session_id: UUID) -> Optional[InterviewSession]:
+    async def find_by_id(self, session_id: int) -> Optional[InterviewSession]:
         """
-        Find interview session by ID.
+        Find interview session by BIGINT ID.
 
         Args:
-            session_id: InterviewSession UUID
+            session_id: InterviewSession BIGINT ID
 
         Returns:
             InterviewSession if found, None otherwise
@@ -68,16 +68,31 @@ class InterviewSessionDAO:
         )
         return result.scalar_one_or_none()
 
+    async def find_by_uuid(self, session_uuid: UUID) -> Optional[InterviewSession]:
+        """
+        Find interview session by UUID.
+
+        Args:
+            session_uuid: InterviewSession UUID
+
+        Returns:
+            InterviewSession if found, None otherwise
+        """
+        result = await self.session.execute(
+            select(InterviewSession).where(InterviewSession.uuid == session_uuid)
+        )
+        return result.scalar_one_or_none()
+
     async def find_by_user_id(
         self,
-        user_id: UUID,
+        user_id: int,
         status: Optional[SessionStatus] = None,
     ) -> list[InterviewSession]:
         """
         Find all interview sessions for a user.
 
         Args:
-            user_id: User UUID
+            user_id: User BIGINT ID
             status: Optional filter by session status
 
         Returns:
@@ -89,12 +104,12 @@ class InterviewSessionDAO:
         result = await self.session.execute(query)
         return list(result.scalars().all())
 
-    async def find_active_session(self, user_id: UUID) -> Optional[InterviewSession]:
+    async def find_active_session(self, user_id: int) -> Optional[InterviewSession]:
         """
         Find active interview session for a user.
 
         Args:
-            user_id: User UUID
+            user_id: User BIGINT ID
 
         Returns:
             Active InterviewSession if found, None otherwise
@@ -132,12 +147,12 @@ class InterviewSessionDAO:
         result = await self.session.execute(query)
         return list(result.scalars().all())
 
-    async def delete(self, session_id: UUID) -> bool:
+    async def delete(self, session_id: int) -> bool:
         """
-        Delete interview session by ID.
+        Delete interview session by BIGINT ID.
 
         Args:
-            session_id: InterviewSession UUID
+            session_id: InterviewSession BIGINT ID
 
         Returns:
             True if deleted, False if not found
@@ -163,12 +178,12 @@ class InterviewSessionDAO:
         await self.session.refresh(interview_session)
         return interview_session
 
-    async def end_session(self, session_id: UUID) -> Optional[InterviewSession]:
+    async def end_session(self, session_id: int) -> Optional[InterviewSession]:
         """
         Mark interview session as ended.
 
         Args:
-            session_id: InterviewSession UUID
+            session_id: InterviewSession BIGINT ID
 
         Returns:
             Updated session or None if not found
@@ -180,12 +195,12 @@ class InterviewSessionDAO:
             return await self.update(interview_session)
         return None
 
-    async def cancel_session(self, session_id: UUID) -> Optional[InterviewSession]:
+    async def cancel_session(self, session_id: int) -> Optional[InterviewSession]:
         """
         Cancel interview session.
 
         Args:
-            session_id: InterviewSession UUID
+            session_id: InterviewSession BIGINT ID
 
         Returns:
             Updated session or None if not found

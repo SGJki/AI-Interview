@@ -384,8 +384,14 @@ class ResumeParser:
         Returns:
             解析后的简历信息
         """
+        logger.info(f"Starting resume parse: {file_path}")
+
         # 读取 PDF
         text = await self._read_pdf(file_path)
+
+        if not text:
+            logger.warning(f"Failed to extract text from PDF: {file_path}")
+            return ResumeInfo(raw_text="", file_path=file_path)
 
         # 解析各个部分
         resume_info = ResumeInfo(
@@ -410,6 +416,14 @@ class ResumeParser:
 
         # 提取工作经历
         resume_info.work_experience = _extract_work_experience(text)
+
+        logger.info(
+            f"Resume parse completed: {file_path}, "
+            f"skills={len(resume_info.skills)}, "
+            f"projects={len(resume_info.projects)}, "
+            f"education={len(resume_info.education)}, "
+            f"experience={len(resume_info.work_experience)}"
+        )
 
         return resume_info
 
@@ -452,8 +466,11 @@ class ResumeParser:
             for page in reader.pages:
                 text_parts.append(page.extract_text())
 
-            return "\n".join(text_parts)
-        except Exception:
+            text = "\n".join(text_parts)
+            logger.info(f"Successfully extracted {len(text)} characters from PDF bytes")
+            return text
+        except Exception as e:
+            logger.error(f"Failed to extract text from PDF bytes: {e}")
             return ""
 
     def _extract_name(self, text: str) -> Optional[str]:
@@ -532,11 +549,18 @@ class LLMEnhancedResumeParser(ResumeParser):
 只输出JSON，不要有其他文字。"""
 
         try:
-            response = await invoke_llm(
-                system_prompt="你是一个专业的简历解析专家。",
-                user_prompt=prompt,
-                temperature=0.3,
-            )
+            # 使用注入的 LLM 或全局 invoke_llm
+            if self.llm:
+                response_obj = await self.llm.ainvoke(
+                    f"System: 你是一个专业的简历解析专家。\n\nUser: {prompt}"
+                )
+                response = response_obj.content if hasattr(response_obj, 'content') else str(response_obj)
+            else:
+                response = await invoke_llm(
+                    system_prompt="你是一个专业的简历解析专家。",
+                    user_prompt=prompt,
+                    temperature=0.3,
+                )
 
             # 尝试解析 LLM 返回的 JSON
             try:

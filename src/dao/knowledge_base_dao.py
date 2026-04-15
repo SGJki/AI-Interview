@@ -8,7 +8,7 @@ from uuid import UUID
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.db.models import KnowledgeBase, Project
+from src.db.models import KnowledgeBase, Project, Resume
 
 
 class KnowledgeBaseDAO:
@@ -53,12 +53,12 @@ class KnowledgeBaseDAO:
         await self.session.refresh(knowledge_base)
         return knowledge_base
 
-    async def find_by_id(self, kb_id: UUID) -> Optional[KnowledgeBase]:
+    async def find_by_id(self, kb_id: int) -> Optional[KnowledgeBase]:
         """
-        Find knowledge base entry by ID.
+        Find knowledge base entry by BIGINT ID.
 
         Args:
-            kb_id: KnowledgeBase UUID
+            kb_id: KnowledgeBase BIGINT ID
 
         Returns:
             KnowledgeBase entry if found, None otherwise
@@ -68,12 +68,12 @@ class KnowledgeBaseDAO:
         )
         return result.scalar_one_or_none()
 
-    async def find_by_project_id(self, project_id: UUID) -> list[KnowledgeBase]:
+    async def find_by_project_id(self, project_id: int) -> list[KnowledgeBase]:
         """
         Find all knowledge base entries for a project.
 
         Args:
-            project_id: Project UUID
+            project_id: Project BIGINT ID
 
         Returns:
             List of knowledge base entries
@@ -129,12 +129,12 @@ class KnowledgeBaseDAO:
         )
         return list(result.scalars().all())
 
-    async def delete(self, kb_id: UUID) -> bool:
+    async def delete(self, kb_id: int) -> bool:
         """
-        Delete knowledge base entry by ID.
+        Delete knowledge base entry by BIGINT ID.
 
         Args:
-            kb_id: KnowledgeBase UUID
+            kb_id: KnowledgeBase BIGINT ID
 
         Returns:
             True if deleted, False if not found
@@ -175,23 +175,24 @@ class KnowledgeBaseDAO:
         )
         return list(result.scalars().all())
 
-    async def find_responsibilities_by_resume(self, resume_id: UUID) -> list[KnowledgeBase]:
+    async def find_responsibilities_by_resume(self, resume_uuid: UUID) -> list[KnowledgeBase]:
         """
         Find all responsibility-type KB entries for a resume.
 
         Args:
-            resume_id: Resume UUID
+            resume_uuid: Resume UUID
 
         Returns:
             List of responsibility knowledge base entries
         """
-        # Join with Project to filter by resume_id
+        # Join with Project to filter by resume_uuid
         result = await self.session.execute(
             select(KnowledgeBase)
             .join(Project, KnowledgeBase.project_id == Project.id)
             .where(
                 and_(
-                    Project.resume_id == resume_id,
+                    Project.resume_id == Resume.id,
+                    Resume.uuid == resume_uuid,
                     KnowledgeBase.type == "responsibility"
                 )
             )

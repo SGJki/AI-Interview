@@ -2,7 +2,7 @@
 """
 LLM Usage 数据类型定义
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -16,11 +16,7 @@ class LLMUsage:
     """LLM API 调用使用量"""
     prompt_tokens: int = 0
     completion_tokens: int = 0
-    prompt_tokens_details: PromptTokensDetails = None
-
-    def __post_init__(self):
-        if self.prompt_tokens_details is None:
-            self.prompt_tokens_details = PromptTokensDetails()
+    prompt_tokens_details: PromptTokensDetails = field(default_factory=PromptTokensDetails)
 
 
 @dataclass

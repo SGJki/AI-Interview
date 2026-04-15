@@ -28,7 +28,6 @@ from src.api.models import (
     FeedbackData,
     InterviewResult,
     SnapshotRequest,
-    RestoreRequest,
     SnapshotResponse,
 )
 from src.agent.state import InterviewMode, FeedbackMode, QuestionType, Feedback, FeedbackType, Question, Answer
@@ -142,6 +141,7 @@ async def start_interview(request: StartInterviewRequest) -> StartInterviewRespo
 
 @interview_router.get("/question")
 async def get_question(
+    request: Request,
     session_id: str = Query(..., description="会话ID"),
     stream: bool = Query(False, description="是否流式输出"),
 ) -> EventSourceResponse:
@@ -159,6 +159,12 @@ async def get_question(
     Returns:
         EventSourceResponse: SSE 流式响应
     """
+    import uuid
+    from src.core.lifespan_manager import get_connection_tracker
+
+    tracker = get_connection_tracker()
+    connection_id = str(uuid.uuid4())
+
     async def event_generator() -> AsyncGenerator[dict, None]:
         try:
             from src.tools.memory_tools import SessionStateManager
@@ -253,12 +259,28 @@ async def get_question(
                 "event": "error",
                 "data": json.dumps({"error": str(e)}),
             }
+        finally:
+            # 确保连接被注销
+            tracker.unregister(connection_id)
+
+    # 注册连接（如果服务器正在关闭，会抛出异常）
+    if tracker.is_shutting_down:
+        raise HTTPException(status_code=503, detail="Server is shutting down")
+
+    tracker.register(connection_id, {
+        "path": "/interview/question",
+        "session_id": session_id,
+        "client": request.client.host if request.client else "unknown",
+    })
 
     return EventSourceResponse(event_generator())
 
 
 @interview_router.post("/answer")
-async def submit_answer(request: SubmitAnswerRequest) -> EventSourceResponse:
+async def submit_answer(
+    http_request: Request,
+    request: SubmitAnswerRequest,
+) -> EventSourceResponse:
     """
     提交回答 - SSE流式输出追问
 
@@ -270,6 +292,12 @@ async def submit_answer(request: SubmitAnswerRequest) -> EventSourceResponse:
     """
     import logging
     logger = logging.getLogger(__name__)
+
+    import uuid
+    from src.core.lifespan_manager import get_connection_tracker
+
+    tracker = get_connection_tracker()
+    connection_id = str(uuid.uuid4())
 
     async def event_generator() -> AsyncGenerator[dict, None]:
         try:
@@ -481,6 +509,19 @@ async def submit_answer(request: SubmitAnswerRequest) -> EventSourceResponse:
                 "event": "error",
                 "data": json.dumps({"error": str(e)}),
             }
+        finally:
+            # 确保连接被注销
+            tracker.unregister(connection_id)
+
+    # 注册连接（如果服务器正在关闭，会抛出异常）
+    if tracker.is_shutting_down:
+        raise HTTPException(status_code=503, detail="Server is shutting down")
+
+    tracker.register(connection_id, {
+        "path": "/interview/answer",
+        "session_id": request.session_id,
+        "client": http_request.client.host if http_request.client else "unknown",
+    })
 
     return EventSourceResponse(event_generator())
 
@@ -567,9 +608,6 @@ async def create_snapshot(request: SnapshotRequest) -> SnapshotResponse:
     Returns:
         SnapshotResponse: 包含快照版本和时间戳
     """
-    import logging
-    logger = logging.getLogger(__name__)
-
     try:
         from src.tools.memory_tools import SessionStateManager
         from src.core.context_catch import ContextCatchEngine
@@ -627,9 +665,6 @@ async def get_snapshot(
     Returns:
         SnapshotResponse: 快照信息
     """
-    import logging
-    logger = logging.getLogger(__name__)
-
     try:
         from src.core.context_catch import ContextCatchEngine
 
@@ -638,14 +673,6 @@ async def get_snapshot(
 
         if not context:
             raise HTTPException(status_code=404, detail="Snapshot not found")
-
-        # 加载完整快照信息用于返回
-        from src.tools.memory_tools import SessionStateManager
-        session_manager = SessionStateManager()
-        full_context = await session_manager.load_interview_state(session_id)
-
-        if not full_context:
-            raise HTTPException(status_code=404, detail="Session not found")
 
         # 获取最新快照版本
         from src.db.context_snapshot import ContextSnapshot

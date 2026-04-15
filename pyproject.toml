@@ -21,6 +21,8 @@ dependencies = [
     "sse-starlette>=3.3.4",
     "langchain-community>=0.4.1",
     "dashscope>=1.25.15",
+    "ruff>=0.15.9",
+    "mypy>=1.20.0",
 ]
 
 [project.optional-dependencies]

@@ -48,12 +48,12 @@ class ProjectDAO:
         await self.session.refresh(project)
         return project
 
-    async def find_by_id(self, project_id: UUID) -> Optional[Project]:
+    async def find_by_id(self, project_id: int) -> Optional[Project]:
         """
-        Find project by ID.
+        Find project by BIGINT ID.
 
         Args:
-            project_id: Project UUID
+            project_id: Project BIGINT ID
 
         Returns:
             Project if found, None otherwise
@@ -63,12 +63,27 @@ class ProjectDAO:
         )
         return result.scalar_one_or_none()
 
-    async def find_by_resume_id(self, resume_id: UUID) -> list[Project]:
+    async def find_by_uuid(self, project_uuid: UUID) -> Optional[Project]:
+        """
+        Find project by UUID.
+
+        Args:
+            project_uuid: Project UUID
+
+        Returns:
+            Project if found, None otherwise
+        """
+        result = await self.session.execute(
+            select(Project).where(Project.uuid == project_uuid)
+        )
+        return result.scalar_one_or_none()
+
+    async def find_by_resume_id(self, resume_id: int) -> list[Project]:
         """
         Find all projects for a resume.
 
         Args:
-            resume_id: Resume UUID
+            resume_id: Resume BIGINT ID
 
         Returns:
             List of projects
@@ -94,12 +109,12 @@ class ProjectDAO:
         )
         return list(result.scalars().all())
 
-    async def delete(self, project_id: UUID) -> bool:
+    async def delete(self, project_id: int) -> bool:
         """
-        Delete project by ID.
+        Delete project by BIGINT ID.
 
         Args:
-            project_id: Project UUID
+            project_id: Project BIGINT ID
 
         Returns:
             True if deleted, False if not found

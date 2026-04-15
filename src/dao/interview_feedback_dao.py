@@ -54,12 +54,12 @@ class InterviewFeedbackDAO:
         await self.session.refresh(feedback)
         return feedback
 
-    async def find_by_id(self, feedback_id: UUID) -> Optional[InterviewFeedback]:
+    async def find_by_id(self, feedback_id: int) -> Optional[InterviewFeedback]:
         """
-        Find interview feedback by ID.
+        Find interview feedback by BIGINT ID.
 
         Args:
-            feedback_id: InterviewFeedback UUID
+            feedback_id: InterviewFeedback BIGINT ID
 
         Returns:
             InterviewFeedback if found, None otherwise
@@ -69,12 +69,12 @@ class InterviewFeedbackDAO:
         )
         return result.scalar_one_or_none()
 
-    async def find_by_session_id(self, session_id: UUID) -> list[InterviewFeedback]:
+    async def find_by_session_id(self, session_id: int) -> list[InterviewFeedback]:
         """
         Find all feedback entries for an interview session.
 
         Args:
-            session_id: InterviewSession UUID
+            session_id: InterviewSession BIGINT ID
 
         Returns:
             List of feedback entries
@@ -86,13 +86,13 @@ class InterviewFeedbackDAO:
 
     async def find_latest_by_session_id(
         self,
-        session_id: UUID,
+        session_id: int,
     ) -> Optional[InterviewFeedback]:
         """
         Find latest feedback for an interview session.
 
         Args:
-            session_id: InterviewSession UUID
+            session_id: InterviewSession BIGINT ID
 
         Returns:
             Latest InterviewFeedback if found, None otherwise
@@ -124,12 +124,12 @@ class InterviewFeedbackDAO:
         )
         return list(result.scalars().all())
 
-    async def delete(self, feedback_id: UUID) -> bool:
+    async def delete(self, feedback_id: int) -> bool:
         """
-        Delete interview feedback by ID.
+        Delete interview feedback by BIGINT ID.
 
         Args:
-            feedback_id: InterviewFeedback UUID
+            feedback_id: InterviewFeedback BIGINT ID
 
         Returns:
             True if deleted, False if not found

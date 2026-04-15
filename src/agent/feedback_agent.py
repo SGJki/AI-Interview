@@ -23,13 +23,18 @@ def get_llm_service() -> InterviewLLMService:
 
 
 @async_retryable(max_attempts=3)
-async def generate_correction(
-    state: InterviewState,
-    question: str,
-    user_answer: str,
-    evaluation: dict
-) -> dict:
-    """生成纠正反馈（dev < 0.3）"""
+async def generate_correction(state: InterviewState) -> dict:
+    """生成纠正反馈（dev < 0.3）
+
+    Extracts question, user_answer, and evaluation from state.
+    """
+    # Extract from state
+    question = state.current_question.content if state.current_question else ""
+    question_id = state.current_question_id or ""
+    user_answer_obj = state.answers.get(question_id) if question_id else None
+    user_answer = user_answer_obj.content if user_answer_obj else ""
+    evaluation = getattr(state, "evaluation_results", {}).get(question_id, {}) if question_id else {}
+
     llm_service = get_llm_service()
 
     deviation_score = evaluation.get("deviation_score", 0)
@@ -47,10 +52,10 @@ async def generate_correction(
         logger.error(f"Failed to generate correction feedback: {e}")
         feedback_content = "你对这个问题的理解有偏差，让我来纠正一下..."
 
-    question_id = state.current_question_id or ""
+    final_question_id = question_id or f"q_{hash(question) % 10000}"
 
     new_feedback = Feedback(
-        question_id=question_id,
+        question_id=final_question_id,
         content=feedback_content,
         is_correct=is_correct,
         guidance="建议回顾相关技术原理",
@@ -59,26 +64,31 @@ async def generate_correction(
 
     pending_feedbacks = list(getattr(state, 'pending_feedbacks', []))
     pending_feedbacks.append({
-        "question_id": question_id,
+        "question_id": final_question_id,
         "feedback": new_feedback,
         "is_correct": is_correct,
     })
 
     return {
-        "feedbacks": {**state.feedbacks, question_id: new_feedback},
+        "feedbacks": {**state.feedbacks, final_question_id: new_feedback},
         "pending_feedbacks": pending_feedbacks,
         "last_feedback": new_feedback,
     }
 
 
 @async_retryable(max_attempts=3)
-async def generate_guidance(
-    state: InterviewState,
-    question: str,
-    user_answer: str,
-    evaluation: dict
-) -> dict:
-    """生成引导反馈（0.3 <= dev < 0.6）"""
+async def generate_guidance(state: InterviewState) -> dict:
+    """生成引导反馈（0.3 <= dev < 0.6）
+
+    Extracts question, user_answer, and evaluation from state.
+    """
+    # Extract from state
+    question = state.current_question.content if state.current_question else ""
+    question_id = state.current_question_id or ""
+    user_answer_obj = state.answers.get(question_id) if question_id else None
+    user_answer = user_answer_obj.content if user_answer_obj else ""
+    evaluation = getattr(state, "evaluation_results", {}).get(question_id, {}) if question_id else {}
+
     llm_service = get_llm_service()
 
     deviation_score = evaluation.get("deviation_score", 0)
@@ -96,10 +106,10 @@ async def generate_guidance(
         logger.error(f"Failed to generate guidance feedback: {e}")
         feedback_content = "你的回答方向正确，但可以更深入一些..."
 
-    question_id = state.current_question_id or ""
+    final_question_id = question_id or f"q_{hash(question) % 10000}"
 
     new_feedback = Feedback(
-        question_id=question_id,
+        question_id=final_question_id,
         content=feedback_content,
         is_correct=is_correct,
         guidance="请尝试从项目实践角度更详细地说明",
@@ -108,26 +118,31 @@ async def generate_guidance(
 
     pending_feedbacks = list(getattr(state, 'pending_feedbacks', []))
     pending_feedbacks.append({
-        "question_id": question_id,
+        "question_id": final_question_id,
         "feedback": new_feedback,
         "is_correct": is_correct,
     })
 
     return {
-        "feedbacks": {**state.feedbacks, question_id: new_feedback},
+        "feedbacks": {**state.feedbacks, final_question_id: new_feedback},
         "pending_feedbacks": pending_feedbacks,
         "last_feedback": new_feedback,
     }
 
 
 @async_retryable(max_attempts=3)
-async def generate_comment(
-    state: InterviewState,
-    question: str,
-    user_answer: str,
-    evaluation: dict
-) -> dict:
-    """生成评论反馈（dev >= 0.6）"""
+async def generate_comment(state: InterviewState) -> dict:
+    """生成评论反馈（dev >= 0.6）
+
+    Extracts question, user_answer, and evaluation from state.
+    """
+    # Extract from state
+    question = state.current_question.content if state.current_question else ""
+    question_id = state.current_question_id or ""
+    user_answer_obj = state.answers.get(question_id) if question_id else None
+    user_answer = user_answer_obj.content if user_answer_obj else ""
+    evaluation = getattr(state, "evaluation_results", {}).get(question_id, {}) if question_id else {}
+
     llm_service = get_llm_service()
 
     deviation_score = evaluation.get("deviation_score", 0)
@@ -145,10 +160,10 @@ async def generate_comment(
         logger.error(f"Failed to generate comment feedback: {e}")
         feedback_content = "回答得很好！继续深入。"
 
-    question_id = state.current_question_id or ""
+    final_question_id = question_id or f"q_{hash(question) % 10000}"
 
     new_feedback = Feedback(
-        question_id=question_id,
+        question_id=final_question_id,
         content=feedback_content,
         is_correct=is_correct,
         guidance=None,
@@ -157,13 +172,13 @@ async def generate_comment(
 
     pending_feedbacks = list(getattr(state, 'pending_feedbacks', []))
     pending_feedbacks.append({
-        "question_id": question_id,
+        "question_id": final_question_id,
         "feedback": new_feedback,
         "is_correct": is_correct,
     })
 
     return {
-        "feedbacks": {**state.feedbacks, question_id: new_feedback},
+        "feedbacks": {**state.feedbacks, final_question_id: new_feedback},
         "pending_feedbacks": pending_feedbacks,
         "last_feedback": new_feedback,
     }

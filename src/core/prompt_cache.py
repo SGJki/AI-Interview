@@ -17,7 +17,7 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 
-@dataclass
+@dataclass(frozen=True)
 class PromptCacheState:
     """Prompt Cache 状态"""
     cache_key: str                    # resume_id + responsibilities_hash
@@ -119,17 +119,31 @@ class PromptCache:
     async def invalidate(
         self,
         session_id: str,
-    ) -> None:
+    ) -> PromptCacheState | None:
         """
-        使缓存失效
+        使缓存失效，返回新的状态实例
 
         Args:
             session_id: 会话 ID
+
+        Returns:
+            新的失效状态实例，如果 session 不存在则返回 None
         """
-        if session_id in self._cache_store:
-            state = self._cache_store[session_id]
-            state.is_valid = False
-            logger.info(f"Invalidated cache for session {session_id}")
+        if session_id not in self._cache_store:
+            return None
+        state = self._cache_store[session_id]
+        new_state = PromptCacheState(
+            cache_key=state.cache_key,
+            responsibilities_hash=state.responsibilities_hash,
+            is_valid=False,
+            last_cached_tokens=state.last_cached_tokens,
+            created_at=state.created_at,
+            hit_count=state.hit_count,
+            miss_count=state.miss_count,
+        )
+        self._cache_store[session_id] = new_state
+        logger.info(f"Invalidated cache for session {session_id}")
+        return new_state
 
     async def validate_cache(
         self,

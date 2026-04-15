@@ -34,7 +34,26 @@
       "Bash(.venv/Scripts/python -c \"from src.config import get_redis_config; r = get_redis_config\\(\\); print\\(f'Redis host: {r.host}, port: {r.port}'\\)\")",
       "Bash(.venv/Scripts/python -m py_compile src/main.py)",
       "Bash(.venv/Scripts/python -m py_compile src/services/knowledge_base_service.py)",
-      "Bash(.venv/Scripts/python -m py_compile src/llm/prompts.py)"
+      "Bash(.venv/Scripts/python -m py_compile src/llm/prompts.py)",
+      "mcp__plugin_everything-claude-code_context7__resolve-library-id",
+      "mcp__plugin_everything-claude-code_context7__query-docs",
+      "Bash(mypy src/agent/resume_agent.py --ignore-missing-imports)",
+      "Bash(mypy src/agent/review_agent.py --ignore-missing-imports)",
+      "Bash(mypy src/agent/orchestrator.py src/agent/state.py)",
+      "mcp__plugin_everything-claude-code_sequential-thinking__sequentialthinking",
+      "WebSearch",
+      "mcp__plugin_everything-claude-code_exa__web_search_exa",
+      "mcp__plugin_everything-claude-code_exa__web_fetch_exa",
+      "Bash(awk 'NR>=68 && NR<=72' src/llm/client.py)",
+      "Bash(awk NR>=69 && NR<=140:*)",
+      "PowerShell(& .venv\\\\scripts\\\\activate)",
+      "PowerShell(& .venv\\\\scripts\\\\activate; python run_ast_extract.py)",
+      "PowerShell(& .venv\\\\scripts\\\\activate; python run_merge_semantic.py)",
+      "PowerShell(New-Item:*)",
+      "PowerShell(& .venv\\\\scripts\\\\activate; python run_label_communities.py 2>&1 | Select-Object -First 100)",
+      "PowerShell(& .venv\\\\scripts\\\\activate; python run_label_communities.py)",
+      "PowerShell(& .venv\\\\scripts\\\\activate; python run_html_cost.py)",
+      "PowerShell(Remove-Item:*)"
     ]
   }
 }

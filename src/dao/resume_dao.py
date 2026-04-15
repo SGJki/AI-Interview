@@ -49,12 +49,12 @@ class ResumeDAO:
         await self.session.refresh(resume)
         return resume
 
-    async def find_by_id(self, resume_id: UUID) -> Optional[Resume]:
+    async def find_by_id(self, resume_id: int) -> Optional[Resume]:
         """
-        Find resume by ID.
+        Find resume by BIGINT ID.
 
         Args:
-            resume_id: Resume UUID
+            resume_id: Resume BIGINT ID
 
         Returns:
             Resume if found, None otherwise
@@ -64,12 +64,27 @@ class ResumeDAO:
         )
         return result.scalar_one_or_none()
 
-    async def find_by_user_id(self, user_id: UUID) -> list[Resume]:
+    async def find_by_uuid(self, resume_uuid: UUID) -> Optional[Resume]:
+        """
+        Find resume by UUID.
+
+        Args:
+            resume_uuid: Resume UUID
+
+        Returns:
+            Resume if found, None otherwise
+        """
+        result = await self.session.execute(
+            select(Resume).where(Resume.uuid == resume_uuid)
+        )
+        return result.scalar_one_or_none()
+
+    async def find_by_user_id(self, user_id: int) -> list[Resume]:
         """
         Find all resumes for a user.
 
         Args:
-            user_id: User UUID
+            user_id: User BIGINT ID
 
         Returns:
             List of resumes
@@ -95,12 +110,12 @@ class ResumeDAO:
         )
         return list(result.scalars().all())
 
-    async def delete(self, resume_id: UUID) -> bool:
+    async def delete(self, resume_id: int) -> bool:
         """
-        Delete resume by ID.
+        Delete resume by BIGINT ID.
 
         Args:
-            resume_id: Resume UUID
+            resume_id: Resume BIGINT ID
 
         Returns:
             True if deleted, False if not found

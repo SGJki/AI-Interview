@@ -6,7 +6,7 @@ Memory Tools for AI Interview Agent
 """
 
 import json
-import redis
+import redis.asyncio as redis
 from typing import Optional
 from datetime import timedelta
 
@@ -24,15 +24,20 @@ from src.agent.state import (
 
 def get_redis_client() -> redis.Redis:
     """
-    获取 Redis 客户端
+    获取 Redis 客户端（异步）
 
     配置来自 pyproject.toml [tool.ai-interview.redis]
     """
-    from src.config import get_redis_config
+    # Import from src.config module (not package) to avoid conflict with src/config/ package
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("config_module", "src/config.py")
+    config_module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(config_module)
+    get_redis_config = config_module.get_redis_config
 
     cfg = get_redis_config()
     kwargs = cfg.to_redis_kwargs()
-    return redis.Redis(**kwargs)
+    return redis.from_url(cfg.url)
 
 
 # =============================================================================
@@ -87,7 +92,7 @@ async def save_to_session_memory(
     }
 
     key = _session_key(session_id, "state")
-    client.setex(key, timedelta(seconds=ttl), json.dumps(state_data))
+    await client.setex(key, timedelta(seconds=ttl), json.dumps(state_data))
 
 
 async def get_session_memory(session_id: str) -> Optional[InterviewContext]:
@@ -103,7 +108,7 @@ async def get_session_memory(session_id: str) -> Optional[InterviewContext]:
     client = get_redis_client()
     key = _session_key(session_id, "state")
 
-    data = client.get(key)
+    data = await client.get(key)
     if not data:
         return None
 
@@ -143,9 +148,9 @@ async def clear_session_memory(session_id: str) -> None:
 
     # 删除所有相关 key
     pattern = f"interview:{session_id}:*"
-    keys = client.keys(pattern)
+    keys = await client.keys(pattern)
     if keys:
-        client.delete(*keys)
+        await client.delete(*keys)
 
 
 async def update_session_series(
@@ -162,11 +167,11 @@ async def update_session_series(
     client = get_redis_client()
     key = _session_key(session_id, "state")
 
-    data = client.get(key)
+    data = await client.get(key)
     if data:
         state_data = json.loads(data)
         state_data["current_series"] = series
-        client.set(key, json.dumps(state_data))
+        await client.set(key, json.dumps(state_data))
 
 
 # =============================================================================
@@ -192,7 +197,7 @@ async def cache_next_series_question(
     """
     client = get_redis_client()
     key = f"interview:{session_id}:series:{series}:q1"
-    client.setex(key, timedelta(seconds=ttl), question_content)
+    await client.setex(key, timedelta(seconds=ttl), question_content)
 
 
 async def get_cached_next_question(
@@ -211,7 +216,7 @@ async def get_cached_next_question(
     """
     client = get_redis_client()
     key = f"interview:{session_id}:series:{series}:q1"
-    return client.get(key)
+    return await client.get(key)
 
 
 # =============================================================================
@@ -233,7 +238,7 @@ async def set_user_current_interview(
     """
     client = get_redis_client()
     key = f"user:{user_id}:current_interview"
-    client.setex(key, timedelta(seconds=ttl), session_id)
+    await client.setex(key, timedelta(seconds=ttl), session_id)
 
 
 async def get_user_current_interview(user_id: str) -> Optional[str]:
@@ -248,7 +253,7 @@ async def get_user_current_interview(user_id: str) -> Optional[str]:
     """
     client = get_redis_client()
     key = f"user:{user_id}:current_interview"
-    return client.get(key)
+    return await client.get(key)
 
 
 # =============================================================================
@@ -324,7 +329,7 @@ class SessionStateManager:
         }
 
         key = self._state_key(session_id)
-        self.redis.setex(key, timedelta(seconds=ttl), json.dumps(state_data))
+        await self.redis.setex(key, timedelta(seconds=ttl), json.dumps(state_data))
 
     async def load_interview_state(
         self,
@@ -340,7 +345,7 @@ class SessionStateManager:
             InterviewContext 或 None（会话不存在或数据损坏）
         """
         key = self._state_key(session_id)
-        data = self.redis.get(key)
+        data = await self.redis.get(key)
 
         if not data:
             return None
@@ -389,9 +394,9 @@ class SessionStateManager:
             session_id: 会话ID
         """
         pattern = f"interview:{session_id}:*"
-        keys = self.redis.keys(pattern)
+        keys = await self.redis.keys(pattern)
         if keys:
-            self.redis.delete(*keys)
+            await self.redis.delete(*keys)
 
     async def get_active_sessions(self, user_id: str) -> list[str]:
         """
@@ -407,15 +412,15 @@ class SessionStateManager:
 
         # Scan for user's sessions
         pattern = f"interview:*:state"
-        for key in self.redis.scan_iter(match=pattern):
+        async for key in self.redis.scan_iter(match=pattern):
             # Extract session_id from key
             parts = key.split(":")
             if len(parts) >= 2:
                 session_id = parts[1]
                 # Check if session belongs to user by checking user mapping
                 user_key = f"user:{user_id}:current_interview"
-                if self.redis.exists(user_key):
-                    current = self.redis.get(user_key)
+                if await self.redis.exists(user_key):
+                    current = await self.redis.get(user_key)
                     if current == session_id:
                         active_sessions.append(session_id)
 
@@ -440,7 +445,7 @@ class SessionStateManager:
         """
         key = self._lock_key(session_id)
         # Use SET NX (set if not exists) with expiration
-        result = self.redis.set(
+        result = await self.redis.set(
             key,
             worker_id,
             nx=True,
@@ -462,9 +467,9 @@ class SessionStateManager:
         """
         key = self._lock_key(session_id)
         # Only delete if we own the lock
-        current_owner = self.redis.get(key)
+        current_owner = await self.redis.get(key)
         if current_owner == worker_id:
-            self.redis.delete(key)
+            await self.redis.delete(key)
 
     async def extend_session_ttl(
         self,
@@ -482,7 +487,7 @@ class SessionStateManager:
             是否成功延长
         """
         key = self._state_key(session_id)
-        return self.redis.expire(key, additional_ttl)
+        return await self.redis.expire(key, additional_ttl)
 
 
 class SessionHealthMonitor:
@@ -512,7 +517,7 @@ class SessionHealthMonitor:
         """
         count = 0
         pattern = "interview:*:state"
-        for _ in self.redis.scan_iter(match=pattern):
+        async for _ in self.redis.scan_iter(match=pattern):
             count += 1
         return count
 
@@ -527,7 +532,7 @@ class SessionHealthMonitor:
             剩余秒数（-2 表示不存在，-1 表示无过期时间）
         """
         key = f"interview:{session_id}:state"
-        return self.redis.ttl(key)
+        return await self.redis.ttl(key)
 
     async def check_session_health(self, session_id: str) -> dict:
         """
@@ -540,8 +545,8 @@ class SessionHealthMonitor:
             健康状态字典
         """
         key = f"interview:{session_id}:state"
-        exists = self.redis.exists(key) > 0
-        ttl = self.redis.ttl(key) if exists else -2
+        exists = await self.redis.exists(key) > 0
+        ttl = await self.redis.ttl(key) if exists else -2
 
         is_healthy = False
         expiring_soon = False
@@ -574,8 +579,8 @@ class SessionHealthMonitor:
         expiring_sessions = []
         pattern = "interview:*:state"
 
-        for key in self.redis.scan_iter(match=pattern):
-            ttl = self.redis.ttl(key)
+        async for key in self.redis.scan_iter(match=pattern):
+            ttl = await self.redis.ttl(key)
             if 0 < ttl <= threshold_seconds:
                 # Extract session_id
                 parts = key.split(":")

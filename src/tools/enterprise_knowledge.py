@@ -5,13 +5,16 @@ Dynamic retrieval of enterprise-level technical best practices
 using SearchAPI or LLM Function Calling for real-time knowledge acquisition
 """
 
+import logging
+import os
 from dataclasses import dataclass, field
 from typing import Optional
 
 from langchain_core.documents import Document
-from langchain_core.retrievers import BaseRetriever
 
 from src.tools.rag_tools import retrieve_knowledge
+
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -47,8 +50,7 @@ async def search_enterprise_best_practices(
     """
     Search enterprise knowledge base for best practices
 
-    This function would connect to an enterprise SearchAPI or internal
-    knowledge management system. Currently returns empty list as placeholder.
+    Connects to enterprise SearchAPI or internal knowledge management system.
 
     Args:
         skill_point: Technical skill point name
@@ -58,19 +60,67 @@ async def search_enterprise_best_practices(
     Returns:
         List of relevant documents from enterprise knowledge base
     """
-    # TODO: Integrate with enterprise SearchAPI
-    # Expected: Connect to internal knowledge management system
-    # Format: API call to enterprise knowledge base with skill_point query
-
     if not skill_point or not skill_point.strip():
         return []
 
-    # Placeholder implementation - returns empty list
-    # In production, this would call:
-    # - Enterprise SearchAPI
-    # - Internal knowledge management system
-    # - Confluence/Notion/Slack search APIs
-    return []
+    # Check for enterprise SearchAPI configuration
+    search_api_url = os.environ.get("ENTERPRISE_SEARCH_API_URL")
+    search_api_key = os.environ.get("ENTERPRISE_SEARCH_API_KEY")
+
+    if not search_api_url:
+        logger.debug("ENTERPRISE_SEARCH_API_URL not set, skipping enterprise search")
+        return []
+
+    try:
+        import httpx
+
+        # Call enterprise SearchAPI
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                search_api_url,
+                json={
+                    "query": skill_point,
+                    "top_k": top_k,
+                    "threshold": threshold,
+                },
+                headers={
+                    "Authorization": f"Bearer {search_api_key}" if search_api_key else "",
+                    "Content-Type": "application/json",
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+
+        # Parse response into Documents
+        documents = []
+        results = data.get("results", data.get("documents", []))
+        for item in results[:top_k]:
+            if isinstance(item, dict):
+                doc = Document(
+                    page_content=item.get("content", item.get("text", "")),
+                    metadata={
+                        "source": "enterprise_kb",
+                        "skill_point": skill_point,
+                        "score": item.get("score", 0.9),
+                        "url": item.get("url", ""),
+                    }
+                )
+                documents.append(doc)
+            elif isinstance(item, str):
+                documents.append(Document(
+                    page_content=item,
+                    metadata={"source": "enterprise_kb", "skill_point": skill_point}
+                ))
+
+        logger.info(f"[search_enterprise_best_practices] Retrieved {len(documents)} enterprise docs for '{skill_point}'")
+        return documents
+
+    except ImportError:
+        logger.warning("[search_enterprise_best_practices] httpx not installed, skipping enterprise search")
+        return []
+    except Exception as e:
+        logger.warning(f"[search_enterprise_best_practices] Enterprise search failed: {e}")
+        return []
 
 
 async def search_web_best_practices(
@@ -93,18 +143,29 @@ async def search_web_best_practices(
     if not skill_point or not skill_point.strip():
         return []
 
-    # TODO: Integrate with Exa/ Tavily / SerpAPI for web search
-    # Expected: Real-time web search for latest best practices
-    #
-    # Example integration:
-    # from langchain_community.retrievers import TavilySearchAPIRetriever
-    #
-    # retriever = TavilySearchAPIRetriever(api_key=os.environ.get("TAVILY_API_KEY"))
-    # results = await retriever.ainvoke(skill_point)
-    #
-    # For now, return empty list - web search is optional fallback
+    api_key = os.environ.get("TAVILY_API_KEY")
 
-    return []
+    if not api_key:
+        logger.debug("TAVILY_API_KEY not set, skipping web search")
+        return []
+
+    try:
+        from langchain_community.retrievers import TavilySearchAPIRetriever
+
+        retriever = TavilySearchAPIRetriever(api_key=api_key)
+        results = await retriever.ainvoke(skill_point)
+
+        # Add source metadata to each document
+        for doc in results:
+            doc.metadata["source"] = "web_search"
+            doc.metadata["skill_point"] = skill_point
+
+        logger.info(f"[search_web_best_practices] Retrieved {len(results)} web docs for '{skill_point}'")
+        return results[:top_k]
+
+    except Exception as e:
+        logger.warning(f"[search_web_best_practices] Web search failed: {e}")
+        return []
 
 
 async def retrieve_enterprise_knowledge(
