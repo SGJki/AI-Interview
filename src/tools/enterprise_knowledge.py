@@ -1,15 +1,14 @@
 """Enterprise Knowledge Base retrieval client."""
 import logging
+import os
 from typing import Optional
 
 import httpx
 
-from src.agent.state import InterviewState
-
 logger = logging.getLogger(__name__)
 
 # Enterprise KB API configuration
-ENTERPRISE_KB_BASE_URL = "http://localhost:8080"
+ENTERPRISE_KB_BASE_URL = os.environ.get("ENTERPRISE_KB_BASE_URL", "http://localhost:8080")
 ENTERPRISE_KB_TIMEOUT = 10  # seconds
 
 
