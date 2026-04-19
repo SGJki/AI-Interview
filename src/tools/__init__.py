@@ -25,7 +25,7 @@ from src.tools.rag_enhancements import (
     retrieve_with_fusion,
 )
 
-from src.tools.memory_tools import (
+from src.infrastructure.session_store import (
     save_to_session_memory,
     get_session_memory,
     clear_session_memory,
@@ -34,6 +34,7 @@ from src.tools.memory_tools import (
     get_cached_next_question,
     set_user_current_interview,
     get_user_current_interview,
+    SessionStateManager,
 )
 
 from src.tools.code_tools import (
@@ -48,11 +49,7 @@ from src.tools.code_tools import (
 
 from src.tools.enterprise_knowledge import (
     retrieve_enterprise_knowledge,
-    retrieve_enterprise_knowledge_with_fusion,
-    EnterpriseKnowledgeRetriever,
-    KnowledgeFusionResult,
-    search_enterprise_best_practices,
-    search_web_best_practices,
+    ensure_enterprise_docs,
 )
 
 __all__ = [
@@ -82,6 +79,7 @@ __all__ = [
     "get_cached_next_question",
     "set_user_current_interview",
     "get_user_current_interview",
+    "SessionStateManager",
     # Code Tools
     "parse_source_code",
     "extract_module_structure",
@@ -92,9 +90,5 @@ __all__ = [
     "ArchitectureInfo",
     # Enterprise Knowledge Tools
     "retrieve_enterprise_knowledge",
-    "retrieve_enterprise_knowledge_with_fusion",
-    "EnterpriseKnowledgeRetriever",
-    "KnowledgeFusionResult",
-    "search_enterprise_best_practices",
-    "search_web_best_practices",
+    "ensure_enterprise_docs",
 ]
