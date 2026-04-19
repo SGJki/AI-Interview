@@ -24,20 +24,25 @@
 │  └── generate_followup()                                        │
 │       └── 将 skill_point 存入 InterviewState                      │
 │                                                                  │
-│  EvaluateAgent  ◄───────────────────────────────────────────── │
-│  ├── evaluate_with_standard()                                      │    │
-│  │   └── 查询企业知识库（优先 module，其次 skill_point）             │    │
-│  └── evaluate_without_standard()                                 │    │
-│       └── 查询企业知识库（skill_point）                              │    │
-│                                                                      │    │
-│  FeedbackAgent  ◄─────────────────────────────────────────────── │    │
-│  ├── generate_correction()                                        │    │
-│  │   └── 查询企业知识库（module + skill_point）                      │    │
-│  ├── generate_guidance()                                           │    │
-│  │   └── 查询企业知识库（module + skill_point）                      │    │
-│  └── generate_comment()                                           │    │
-│      └── 查询企业知识库（module + skill_point）                      │    │
+│  ┌───────────────────────────────────────────────────────────┐   │
+│  │  评估/反馈入口（统一查询企业知识库）                           │   │
+│  │  一次查询，存入 state.enterprise_docs，共 4 个方法复用         │   │
+│  └───────────────────────────────────────────────────────────┘   │
+│                           │                                      │
+│                           ▼                                      │
+│  EvaluateAgent  ────────────────────────────────────────────── │
+│  ├── evaluate_with_standard()                                      │
+│  └── evaluate_without_standard()                                   │
+│       └── 读取 state.enterprise_docs                              │
 │                                                                      │
+│  FeedbackAgent  ─────────────────────────────────────────────── │
+│  ├── generate_correction()                                          │
+│  ├── generate_guidance()                                           │
+│  └── generate_comment()                                            │
+│       └── 读取 state.enterprise_docs                              │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────┘
+```
 └─────────────────────────────────────────────────────────────────┘
                                │
                                ▼
@@ -223,25 +228,18 @@ async def generate_correction(
     user_answer: str,
     evaluation: dict,
 ) -> Feedback:
-    """生成纠正反馈"""
-    
-    module = state.current_module
-    skill_point = state.current_skill_point or _extract_skill_point(question.content)
-    
-    # 查询企业知识库（优先级：module > skill_point）
-    enterprise_docs = await retrieve_enterprise_knowledge(
-        module=module,
-        skill_point=skill_point,
-        top_k=3
-    )
-    
+    """生成纠正反馈（使用 state.enterprise_docs）"""
+
+    # 使用已缓存的企业知识库文档
+    enterprise_docs = state.enterprise_docs
+
     correction_prompt = _build_correction_prompt(
         question=question.content,
         user_answer=user_answer,
         evaluation=evaluation,
         enterprise_docs=enterprise_docs,
     )
-    
+
     return await llm_service.generate_correction(correction_prompt)
 ```
 
@@ -254,25 +252,19 @@ async def generate_guidance(
     user_answer: str,
     evaluation: dict,
 ) -> Feedback:
-    """生成指导反馈"""
-    
-    module = state.current_module
-    skill_point = state.current_skill_point or _extract_skill_point(question.content)
-    
-    enterprise_docs = await retrieve_enterprise_knowledge(
-        module=module,
-        skill_point=skill_point,
-        top_k=3
-    )
-    
+    """生成指导反馈（使用 state.enterprise_docs）"""
+
+    # 使用已缓存的企业知识库文档
+    enterprise_docs = state.enterprise_docs
+
     guidance_prompt = _build_guidance_prompt(
         question=question.content,
         user_answer=user_answer,
         evaluation=evaluation,
         enterprise_docs=enterprise_docs,
-        skill_point=skill_point,
+        skill_point=state.current_skill_point,
     )
-    
+
     return await llm_service.generate_guidance(guidance_prompt)
 ```
 
@@ -285,24 +277,18 @@ async def generate_comment(
     user_answer: str,
     evaluation: dict,
 ) -> Feedback:
-    """生成评语反馈"""
-    
-    module = state.current_module
-    skill_point = state.current_skill_point or _extract_skill_point(question.content)
-    
-    enterprise_docs = await retrieve_enterprise_knowledge(
-        module=module,
-        skill_point=skill_point,
-        top_k=3
-    )
-    
+    """生成评语反馈（使用 state.enterprise_docs）"""
+
+    # 使用已缓存的企业知识库文档
+    enterprise_docs = state.enterprise_docs
+
     comment_prompt = _build_comment_prompt(
         question=question.content,
         user_answer=user_answer,
         evaluation=evaluation,
         enterprise_docs=enterprise_docs,
     )
-    
+
     return await llm_service.generate_comment(comment_prompt)
 ```
 
@@ -383,13 +369,17 @@ async def parse_resume_and_identify_module(resume_text: str) -> dict:
 @dataclass
 class InterviewState:
     """面试 Agent 状态"""
-    
+
     # ... 现有字段 ...
-    
+
     # 新增：企业知识库相关
     current_module: str | None = None           # 当前问题所属 module
     current_skill_point: str | None = None      # 当前问题关联的 skill_point
     identified_modules: list[str] = field(default_factory=list)  # 简历中识别的所有 module
+
+    # 企业知识库文档（评估/反馈阶段统一查询）
+    enterprise_docs: list[Document] = field(default_factory=list)  # 当前问题相关的企业知识
+    enterprise_docs_retrieved: bool = False      # 是否已查询过
 ```
 
 ### 6.2 状态更新时机
@@ -401,8 +391,63 @@ class InterviewState:
 2. QuestionAgent.generate_initial()
    → skill_point → state.current_skill_point
 
-3. EvaluateAgent / FeedbackAgent
-   ← 读取 state.current_module, state.current_skill_point
+3. 评估/反馈入口（统一）
+   → retrieve_enterprise_knowledge() → state.enterprise_docs
+   → state.enterprise_docs_retrieved = True
+
+4. EvaluateAgent / FeedbackAgent
+   ← 读取 state.enterprise_docs（复用）
+```
+
+### 6.3 统一查询企业知识库
+
+```python
+async def ensure_enterprise_docs(state: InterviewState) -> list[Document]:
+    """
+    确保企业知识库文档已查询（统一入口）
+    评估/反馈前调用，避免重复查询
+    """
+    if state.enterprise_docs_retrieved:
+        return state.enterprise_docs
+
+    module = state.current_module
+    skill_point = state.current_skill_point
+
+    state.enterprise_docs = await retrieve_enterprise_knowledge(
+        module=module,
+        skill_point=skill_point,
+        top_k=3
+    )
+    state.enterprise_docs_retrieved = True
+
+    return state.enterprise_docs
+```
+
+### 6.4 评估/反馈流程优化
+
+```python
+# 评估/反馈入口
+async def evaluate_and_feedback(
+    state: InterviewState,
+    user_answer: str,
+    question: Question,
+) -> tuple[EvaluationResult, Feedback]:
+    """
+    统一入口：一次查询，多个方法复用
+    """
+
+    # 统一查询企业知识库（仅一次）
+    docs = await ensure_enterprise_docs(state)
+
+    # 评估（使用同一批 docs）
+    eval_result = await evaluate_answer(state, user_answer, question, docs)
+
+    # 生成反馈（使用同一批 docs）
+    correction = await generate_correction(state, question, user_answer, eval_result.evaluation)
+    guidance = await generate_guidance(state, question, user_answer, eval_result.evaluation)
+    comment = await generate_comment(state, question, user_answer, eval_result.evaluation)
+
+    return eval_result, Feedback(correction, guidance, comment)
 ```
 
 ---
