@@ -367,6 +367,7 @@ user_answer: {user_answer}
         user_answer: str,
         deviation_score: float,
         is_correct: bool,
+        enterprise_docs: Optional[list] = None,
     ) -> Feedback:
         """
         生成反馈
@@ -376,16 +377,28 @@ user_answer: {user_answer}
             user_answer: 用户回答
             deviation_score: 偏差分数
             is_correct: 是否正确
+            enterprise_docs: 可选的企业知识库文档列表
 
         Returns:
             生成的 Feedback 对象
         """
-        prompt = FEEDBACK_GENERATION_PROMPT.format(
+        # 构建包含企业知识库的提示词
+        base_prompt = FEEDBACK_GENERATION_PROMPT.format(
             question=question,
             user_answer=user_answer,
             deviation_score=deviation_score,
             is_correct=is_correct,
         )
+
+        # 如果有企业知识库文档，添加到提示词中
+        if enterprise_docs:
+            docs_context = "\n".join([
+                f"- {doc.get('content', str(doc))}"
+                for doc in enterprise_docs[:5]  # 最多使用5个文档
+            ])
+            prompt = f"{base_prompt}\n\n## 企业最佳实践参考\n{docs_context}\n"
+        else:
+            prompt = base_prompt
 
         try:
             feedback_content = await invoke_llm(

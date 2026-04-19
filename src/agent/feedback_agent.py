@@ -5,7 +5,9 @@ from typing import Optional
 from langgraph.graph import StateGraph
 
 from src.agent.retry import async_retryable
-from src.agent.state import InterviewState, Feedback, FeedbackType
+from src.agent.state import InterviewState
+from src.domain.enums import FeedbackType
+from src.domain.models import Feedback
 from src.services.llm_service import InterviewLLMService
 
 logger = logging.getLogger(__name__)
@@ -35,6 +37,9 @@ async def generate_correction(state: InterviewState) -> dict:
     user_answer = user_answer_obj.content if user_answer_obj else ""
     evaluation = getattr(state, "evaluation_results", {}).get(question_id, {}) if question_id else {}
 
+    # Get cached enterprise docs
+    enterprise_docs = state.enterprise_docs
+
     llm_service = get_llm_service()
 
     deviation_score = evaluation.get("deviation_score", 0)
@@ -46,6 +51,7 @@ async def generate_correction(state: InterviewState) -> dict:
             user_answer=user_answer,
             deviation_score=deviation_score,
             is_correct=is_correct,
+            enterprise_docs=enterprise_docs if enterprise_docs else None,
         )
         feedback_content = feedback.content
     except Exception as e:
@@ -89,6 +95,9 @@ async def generate_guidance(state: InterviewState) -> dict:
     user_answer = user_answer_obj.content if user_answer_obj else ""
     evaluation = getattr(state, "evaluation_results", {}).get(question_id, {}) if question_id else {}
 
+    # Get cached enterprise docs
+    enterprise_docs = state.enterprise_docs
+
     llm_service = get_llm_service()
 
     deviation_score = evaluation.get("deviation_score", 0)
@@ -100,6 +109,7 @@ async def generate_guidance(state: InterviewState) -> dict:
             user_answer=user_answer,
             deviation_score=deviation_score,
             is_correct=is_correct,
+            enterprise_docs=enterprise_docs if enterprise_docs else None,
         )
         feedback_content = feedback.content
     except Exception as e:
@@ -143,6 +153,9 @@ async def generate_comment(state: InterviewState) -> dict:
     user_answer = user_answer_obj.content if user_answer_obj else ""
     evaluation = getattr(state, "evaluation_results", {}).get(question_id, {}) if question_id else {}
 
+    # Get cached enterprise docs
+    enterprise_docs = state.enterprise_docs
+
     llm_service = get_llm_service()
 
     deviation_score = evaluation.get("deviation_score", 0)
@@ -154,6 +167,7 @@ async def generate_comment(state: InterviewState) -> dict:
             user_answer=user_answer,
             deviation_score=deviation_score,
             is_correct=is_correct,
+            enterprise_docs=enterprise_docs if enterprise_docs else None,
         )
         feedback_content = feedback.content
     except Exception as e:
