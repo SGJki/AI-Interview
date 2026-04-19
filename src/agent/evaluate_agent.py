@@ -44,24 +44,38 @@ async def evaluate_with_standard(state: InterviewState) -> dict:
     if question_id and question_id in state.mastered_questions:
         standard_answer = state.mastered_questions[question_id].get("standard_answer", "")
 
+    return await _evaluate_answer_core(
+        state=state,
+        question=question,
+        question_id=question_id,
+        user_answer=user_answer,
+        standard_answer=standard_answer,
+        enterprise_docs=docs if docs else None,
+        error_key_points=["评估出错"],
+        kb_state_updates=kb_state_updates,
+    )
+
+
+async def _evaluate_answer_core(
+    state: InterviewState,
+    question: str,
+    question_id: str,
+    user_answer: str,
+    standard_answer: str | None,
+    enterprise_docs: list[dict] | None,
+    error_key_points: list[str],
+    kb_state_updates: dict,
+) -> dict:
+    """Shared evaluation logic for answer evaluation."""
     llm_service = get_llm_service()
 
     try:
-        # Build prompt with enterprise docs if available
-        if docs:
-            # Compute similarity score (placeholder - we'll add this later)
-            similarity_score = 0.8  # TODO: implement similarity calculation
-            _build_evaluation_prompt_with_similarity(
-                question=question,
-                user_answer=user_answer,
-                enterprise_docs=docs,
-                similarity_score=similarity_score,
-            )
-
+        # Evaluate with enterprise docs if available
         result = await llm_service.evaluate_answer(
             question=question,
             user_answer=user_answer,
             standard_answer=standard_answer,
+            enterprise_docs=enterprise_docs,
         )
 
         deviation_score = result.get("deviation_score", 0.5)
@@ -73,7 +87,7 @@ async def evaluate_with_standard(state: InterviewState) -> dict:
         result = {
             "deviation_score": 0.5,
             "is_correct": True,
-            "key_points": ["评估出错"],
+            "key_points": error_key_points,
             "suggestions": ["请详细描述你的经验"],
         }
 
@@ -121,66 +135,16 @@ async def evaluate_without_standard(state: InterviewState) -> dict:
     user_answer_obj = state.answers.get(question_id) if question_id else None
     user_answer = user_answer_obj.content if user_answer_obj else ""
 
-    llm_service = get_llm_service()
-
-    try:
-        # Build prompt with enterprise docs if available
-        if docs:
-            # Compute similarity score (placeholder - we'll add this later)
-            similarity_score = 0.8  # TODO: implement similarity calculation
-            _build_evaluation_prompt_with_similarity(
-                question=question,
-                user_answer=user_answer,
-                enterprise_docs=docs,
-                similarity_score=similarity_score,
-            )
-
-        result = await llm_service.evaluate_answer(
-            question=question,
-            user_answer=user_answer,
-            standard_answer=None,
-        )
-
-        deviation_score = result.get("deviation_score", 0.5)
-        is_correct = result.get("is_correct", True)
-    except Exception as e:
-        logger.error(f"Failed to evaluate answer: {e}")
-        deviation_score = 0.5
-        is_correct = True
-        result = {
-            "deviation_score": 0.5,
-            "is_correct": True,
-            "key_points": ["暂时无法评估"],
-            "suggestions": ["请详细描述你的经验"],
-        }
-
-    final_question_id = question_id or f"q_{hash(question) % 10000}"
-
-    new_answer = Answer(
-        question_id=final_question_id,
-        content=user_answer,
-        deviation_score=deviation_score,
+    return await _evaluate_answer_core(
+        state=state,
+        question=question,
+        question_id=question_id,
+        user_answer=user_answer,
+        standard_answer=None,
+        enterprise_docs=docs if docs else None,
+        error_key_points=["暂时无法评估"],
+        kb_state_updates=kb_state_updates,
     )
-
-    new_error_count = state.error_count
-    if not is_correct:
-        new_error_count += 1
-    else:
-        new_error_count = 0
-
-    evaluation_results = getattr(state, "evaluation_results", {})
-    evaluation_results[final_question_id] = result
-
-    # Merge state updates from KB retrieval
-    updates = {
-        "answers": {**state.answers, final_question_id: new_answer},
-        "evaluation_results": evaluation_results,
-        "error_count": new_error_count,
-        "current_answer": new_answer,
-        **kb_state_updates,  # Include KB state updates
-    }
-
-    return updates
 
 
 def create_evaluate_agent_graph() -> "CompiledStateGraph":
@@ -193,35 +157,3 @@ def create_evaluate_agent_graph() -> "CompiledStateGraph":
 
 
 evaluate_agent_graph = create_evaluate_agent_graph()
-
-
-def _build_evaluation_prompt_with_similarity(
-    question: str,
-    user_answer: str,
-    enterprise_docs: list[dict],
-    similarity_score: float,
-) -> str:
-    """构建含相似度分数和企业知识的评估提示词"""
-    prompt = f"""你是一个面试评估专家。请根据以下信息评估候选人的回答。
-
-## 问题
-{question}
-
-## 候选人回答
-{user_answer}
-
-## 回答与参考答案的相似度
-{similarity_score:.2%}
-
-## 企业最佳实践参考答案
-"""
-    for i, doc in enumerate(enterprise_docs, 1):
-        prompt += f"\n{i}. {doc['content']}\n"
-
-    prompt += """
-请结合相似度分数和参考答案，从以下几个方面评估：
-1. 回答的正确性
-2. 回答的完整性
-3. 与企业最佳实践的差距
-"""
-    return prompt
