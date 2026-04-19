@@ -95,6 +95,7 @@ class TestEnsureEnterpriseDocs:
             enterprise_docs_retrieved=True
         )
 
-        docs = await ensure_enterprise_docs(state)
+        docs, state_updates = await ensure_enterprise_docs(state)
 
         assert docs == cached_docs
+        assert state_updates == {}

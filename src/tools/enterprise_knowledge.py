@@ -70,7 +70,7 @@ async def retrieve_enterprise_knowledge(
         return []
 
 
-async def ensure_enterprise_docs(state: InterviewState) -> list[dict]:
+async def ensure_enterprise_docs(state: InterviewState) -> tuple[list[dict], dict]:
     """
     Ensure enterprise docs are retrieved and cached in state.
 
@@ -78,10 +78,12 @@ async def ensure_enterprise_docs(state: InterviewState) -> list[dict]:
         state: InterviewState
 
     Returns:
-        List of enterprise knowledge documents
+        tuple: (docs, state_updates)
+        - docs: list of enterprise knowledge documents
+        - state_updates: dict to merge into state (with enterprise_docs and enterprise_docs_retrieved)
     """
     if state.enterprise_docs_retrieved:
-        return state.enterprise_docs
+        return state.enterprise_docs, {}
 
     docs = await retrieve_enterprise_knowledge(
         module=state.current_module,
@@ -89,7 +91,9 @@ async def ensure_enterprise_docs(state: InterviewState) -> list[dict]:
         top_k=3,
     )
 
-    state.enterprise_docs = docs
-    state.enterprise_docs_retrieved = True
+    state_updates = {
+        "enterprise_docs": docs,
+        "enterprise_docs_retrieved": True,
+    }
 
-    return docs
+    return docs, state_updates
