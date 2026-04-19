@@ -170,7 +170,80 @@ GET /health
 uv run python scripts/build_index.py --source ./enterprise-kb/
 ```
 
-### 5.2 构建脚本逻辑
+### 5.2 分块策略 (Chunking)
+
+采用 **按 Markdown 标题层级分块**，保持语义完整性：
+
+```python
+def chunk_by_headings(content: str, source: str, metadata: dict) -> list[Chunk]:
+    """
+    按 Markdown 标题层级（## / ###）切分文档
+    
+    Args:
+        content: Markdown 原始内容
+        source: 文档来源文件名
+        metadata: front-matter 解析的元数据
+    
+    Returns:
+        Chunk 列表，每个 chunk 包含：
+        - content: 块文本内容
+        - level: 标题层级 (1=#, 2=##, 3=###)
+        - parent_heading: 父标题路径
+        - chunk_index: 块序号
+    """
+    chunks = []
+    lines = content.split('\n')
+    
+    current_section = ""
+    current_level = 0
+    parent_headings = []
+    
+    for line in lines:
+        if line.startswith('### '):
+            # 保存前一个 chunk
+            if current_section.strip():
+                chunks.append(create_chunk(current_section, current_level, parent_headings, metadata))
+            
+            # 更新标题路径
+            parent_headings.append(line[4:])
+            current_level = 3
+            current_section = line + "\n"
+            
+        elif line.startswith('## '):
+            if current_section.strip():
+                chunks.append(create_chunk(current_section, current_level, parent_headings, metadata))
+            
+            parent_headings = [line[3:]]
+            current_level = 2
+            current_section = line + "\n"
+            
+        else:
+            current_section += line + "\n"
+    
+    # 保存最后一个 chunk
+    if current_section.strip():
+        chunks.append(create_chunk(current_section, current_level, parent_headings, metadata))
+    
+    return chunks
+```
+
+**Chunk 元数据结构**：
+
+```python
+@dataclass
+class Chunk:
+    content: str              # 块文本内容
+    chunk_index: int           # 块序号
+    level: int                # 标题层级 (1, 2, 3)
+    parent_heading: str       # 父标题（如 "2. Token 管理"）
+    heading_path: str          # 完整路径（如 "功能规范 > 2. Token 管理"）
+    source: str               # 来源文档名
+    module: str               # 模块名（继承自 front-matter）
+    skill_points: list[str]   # 关联技能点（继承自 front-matter）
+    embedding: list[float]    # 块级向量
+```
+
+### 5.3 构建脚本逻辑
 
 ```python
 # scripts/build_index.py
@@ -178,24 +251,30 @@ async def build_index(source_dir: Path):
     # 1. 扫描所有 .md 文件
     documents = list(source_dir.glob("**/*.md"))
 
-    # 2. 解析 front-matter 和内容
+    # 2. 解析 front-matter
     parsed_docs = []
     for doc in documents:
         content = doc.read_text()
-        metadata = parse_front_matter(content)
-        body = extract_body(content)
-        parsed_docs.append({
-            "content": body,
-            "metadata": metadata
-        })
+        fm = parse_front_matter(content)
+        chunks = chunk_by_headings(content, doc.name, fm)
+        
+        for chunk in chunks:
+            parsed_docs.append({
+                "content": chunk.content,
+                "metadata": {
+                    "source": chunk.source,
+                    "module": chunk.module,
+                    "skill_points": chunk.skill_points,
+                    "heading_path": chunk.heading_path,
+                    "level": chunk.level,
+                },
+                "embedding": embed_text(chunk.content)
+            })
 
-    # 3. 生成向量嵌入
-    embeddings = embed_texts([d["content"] for d in parsed_docs])
+    # 3. 批量存入 pgvector
+    await store_in_pgvector(parsed_docs)
 
-    # 4. 存入 pgvector
-    await store_in_pgvector(parsed_docs, embeddings)
-
-    # 5. 更新索引元数据
+    # 4. 更新索引元数据
     await update_index_meta(len(parsed_docs))
 ```
 
@@ -248,31 +327,171 @@ class EnterpriseKBRetriever:
         self.sparse = BM25SparseRetriever(...)
         self.dense = VectorRetriever(...)
         self.fusion = WeightedRRF(fusion_resolver)
+        self.reranker = CrossEncoderReranker(...)
 
     async def retrieve_by_skill(
         self,
         skill_point: str,
         top_k: int = 5
     ) -> list[Document]:
-        # 1. BM25 关键词检索
-        sparse_results = await self.sparse.aretrieve(skill_point, top_k * 2)
+        # 1. Query Expansion - 扩展 skill_point
+        expanded_queries = self._expand_query(skill_point)
 
-        # 2. 向量语义检索
-        dense_results = await self.dense.aretrieve(skill_point, top_k * 2)
+        # 2. BM25 关键词检索 (使用扩展查询)
+        sparse_results = []
+        for query in expanded_queries:
+            results = await self.sparse.aretrieve(query, top_k * 2)
+            sparse_results.extend(results)
 
-        # 3. RRF 融合 (Reciprocal Rank Fusion)
+        # 3. 向量语义检索 (使用扩展查询)
+        dense_results = []
+        for query in expanded_queries:
+            results = await self.dense.aretrieve(query, top_k * 2)
+            dense_results.extend(results)
+
+        # 4. RRF 融合 (Reciprocal Rank Fusion)
         fused = self.fusion.combine(sparse_results, dense_results)
 
-        return fused[:top_k]
+        # 5. Cross-encoder Reranking
+        reranked = await self.reranker.rerank(skill_point, fused[:top_k * 3])
+
+        return reranked[:top_k]
 
     async def retrieve_by_module(
         self,
         module: str,
         top_k: int = 5
     ) -> list[Document]:
-        # 直接按 module 字段过滤 + 语义检索
-        return await self.dense.aretrieve(module, top_k)
+        # 按 module 字段过滤 + 语义检索 + Reranking
+        results = await self.dense.aretrieve(module, top_k * 3)
+        reranked = await self.reranker.rerank(module, results)
+        return reranked[:top_k]
 ```
+
+### 7.2 Query Expansion
+
+将 skill_point 扩展为多个同义词/相关查询，提高召回率：
+
+```python
+# Query Expansion 实现
+SKILL_POINT_SYNONYMS = {
+    "Redis缓存": ["Redis", "缓存", "Redis缓存", "分布式缓存", "缓存策略"],
+    "用户登录": ["登录", "用户认证", "Authentication", "登录验证"],
+    "Token管理": ["Token", "JWT", "AccessToken", "RefreshToken", "令牌"],
+    "微服务": ["微服务", "Microservice", "服务拆分", "分布式架构"],
+    # ...
+}
+
+def expand_query(query: str) -> list[str]:
+    """扩展查询为多个同义词查询"""
+    # 精确匹配优先
+    expanded = [query]
+
+    # 查找同义词
+    for key, synonyms in SKILL_POINT_SYNONYMS.items():
+        if query in synonyms or query == key:
+            expanded.extend(synonyms)
+            break
+
+    # 去重
+    return list(set(expanded))
+```
+
+### 7.3 RRF 融合 (Reciprocal Rank Fusion)
+
+```python
+def reciprocal_rank_fusion(
+    sparse_results: list[tuple[Document, float]],
+    dense_results: list[tuple[Document, float]],
+    k: int = 60
+) -> list[tuple[Document, float]]:
+    """
+    RRF 融合算法
+    
+    RRF_score(d) = Σ 1/(k + rank_i(d))
+    
+    Args:
+        sparse_results: BM25 结果 (doc, score)
+        dense_results: 向量结果 (doc, score)
+        k: 融合参数 (通常 60)
+    """
+    rrf_scores = defaultdict(float)
+
+    # BM25 结果计分
+    for rank, (doc, _) in enumerate(sparse_results):
+        rrf_scores[doc.page_content] += 1 / (k + rank + 1)
+
+    # 向量结果计分
+    for rank, (doc, _) in enumerate(dense_results):
+        rrf_scores[doc.page_content] += 1 / (k + rank + 1)
+
+    # 按 RRF 分数排序
+    sorted_docs = sorted(
+        rrf_scores.items(),
+        key=lambda x: x[1],
+        reverse=True
+    )
+
+    return [(doc, score) for doc, score in sorted_docs]
+```
+
+### 7.4 Cross-encoder Reranking
+
+用 Cross-encoder 模型对融合结果重排，提高精确率：
+
+```python
+from sentence_transformers import CrossEncoder
+
+class CrossEncoderReranker:
+    def __init__(self, model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"):
+        self.model = CrossEncoder(model_name)
+
+    async def rerank(
+        self,
+        query: str,
+        documents: list[Document],
+        top_k: int = 5
+    ) -> list[Document]:
+        if not documents:
+            return []
+
+        # 构造 query-document pairs
+        pairs = [(query, doc.page_content) for doc in documents]
+
+        # 获取 Cross-encoder 分数
+        scores = self.model.predict(pairs)
+
+        # 按分数排序
+        doc_scores = list(zip(documents, scores))
+        doc_scores.sort(key=lambda x: x[1], reverse=True)
+
+        return [doc for doc, _ in doc_scores[:top_k]]
+```
+
+### 7.5 API 响应格式
+
+```json
+// POST /retrieve/by-module 或 /retrieve/by-skill
+{
+  "documents": [
+    {
+      "content": "Token 是服务端生成的用户身份标识...",
+      "metadata": {
+        "module": "用户认证",
+        "skill_points": ["Token管理", "用户登录"],
+        "score_points": ["基础: 理解 Token 用途"],
+        "source": "用户认证模块.md",
+        "heading_path": "功能规范 > 2. Token 管理",
+        "level": 3
+      },
+      "score": 0.92
+    }
+  ],
+  "total": 1
+}
+```
+
+注意：`skill_points` 不再作为顶层字段返回，而是保留在 `metadata` 中。
 
 ---
 

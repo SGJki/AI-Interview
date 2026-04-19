@@ -116,48 +116,70 @@ async def retrieve_enterprise_knowledge_with_fusion(
 
 ## 3. EvaluateAgent 集成
 
-### 3.1 evaluate_with_standard
+### 3.1 评估策略
+
+采用 **相似度分数 + LLM 结合** 的评估方式：
 
 ```python
-# src/agent/evaluate_agent.py
-
-async def evaluate_with_standard(
+async def evaluate_answer(
     state: InterviewState,
-    responsibility: str,
     user_answer: str,
     question: Question,
-) -> dict:
-    """使用标准答案评估（企业知识库作为参考答案）"""
+    enterprise_docs: list[Document],
+) -> EvaluationResult:
+    """
+    评估用户回答
     
-    # 1. 获取 module 和 skill_point
-    module = state.current_module
-    skill_point = state.current_skill_point or _extract_skill_point(question.content)
+    有企业知识库文档时：
+    1. 计算用户回答与标准答案的相似度分数
+    2. 将相似度分数 + 文档 + 原问题一起交给 LLM 指导评估
+    3. LLM 综合给出评估结果
     
-    # 2. 查询企业知识库
-    enterprise_docs = await retrieve_enterprise_knowledge(
-        module=module,
-        skill_point=skill_point,
-        top_k=3
-    )
+    无企业知识库文档时：
+    - LLM 独立评估
+    """
     
-    # 3. 构架评估提示词（企业知识作为参考）
-    evaluation_prompt = _build_evaluation_prompt(
-        question=question.content,
-        user_answer=user_answer,
-        enterprise_docs=enterprise_docs,  # 加入参考答案
-        responsibility=responsibility,
-    )
-    
-    # 4. LLM 评估
-    evaluation = await llm_service.evaluate(evaluation_prompt)
-    
-    return {
-        "evaluation_result": evaluation,
-        "enterprise_docs_used": len(enterprise_docs) > 0,
-    }
+    if enterprise_docs:
+        # 1. 计算相似度分数
+        similarity_scores = []
+        for doc in enterprise_docs:
+            score = await compute_similarity(user_answer, doc.content)
+            similarity_scores.append(score)
+        
+        best_score = max(similarity_scores)
+        
+        # 2. 构建含相似度分数的评估提示词
+        evaluation_prompt = _build_evaluation_prompt_with_similarity(
+            question=question.content,
+            user_answer=user_answer,
+            enterprise_docs=enterprise_docs,
+            similarity_score=best_score,
+            responsibility=state.current_responsibility,
+        )
+        
+        # 3. LLM 评估（受相似度分数指导）
+        evaluation = await llm_service.evaluate(evaluation_prompt)
+        
+        return EvaluationResult(
+            evaluation=evaluation,
+            similarity_score=best_score,
+            docs_used=True,
+        )
+    else:
+        # 无企业知识库，LLM 独立评估
+        evaluation = await llm_service.evaluate_independent(
+            question=question.content,
+            user_answer=user_answer,
+        )
+        
+        return EvaluationResult(
+            evaluation=evaluation,
+            similarity_score=None,
+            docs_used=False,
+        )
 ```
 
-### 3.2 evaluate_without_standard
+### 3.3 evaluate_without_standard
 
 ```python
 async def evaluate_without_standard(
@@ -167,29 +189,24 @@ async def evaluate_without_standard(
     question: Question,
 ) -> dict:
     """不使用标准答案评估（企业知识库作为背景知识）"""
-    
+
     module = state.current_module
     skill_point = state.current_skill_point or _extract_skill_point(question.content)
-    
+
     # 查询企业知识库作为背景
     enterprise_docs = await retrieve_enterprise_knowledge(
         module=module,
         skill_point=skill_point,
         top_k=3
     )
-    
-    evaluation_prompt = _build_evaluation_prompt_no_standard(
-        question=question.content,
-        user_answer=user_answer,
-        enterprise_docs=enterprise_docs,
-        responsibility=responsibility,
-    )
-    
-    evaluation = await llm_service.evaluate(evaluation_prompt)
-    
+
+    # 评估（相似度分数 + LLM 结合）
+    result = await evaluate_answer(state, user_answer, question, enterprise_docs)
+
     return {
-        "evaluation_result": evaluation,
-        "enterprise_docs_used": len(enterprise_docs) > 0,
+        "evaluation_result": result.evaluation,
+        "similarity_score": result.similarity_score,
+        "enterprise_docs_used": result.docs_used,
     }
 ```
 
@@ -413,17 +430,18 @@ def _extract_skill_point(question_content: str) -> str | None:
     return None
 ```
 
-### 7.2 构架评估提示词（含企业知识）
+### 7.2 构架评估提示词（含相似度分数）
 
 ```python
-def _build_evaluation_prompt(
+def _build_evaluation_prompt_with_similarity(
     question: str,
     user_answer: str,
     enterprise_docs: list[Document],
+    similarity_score: float,
     responsibility: str,
 ) -> str:
     """
-    构架评估提示词，将企业知识库内容加入作为参考答案
+    构架评估提示词，将相似度分数 + 企业知识库内容作为参考答案
     """
     prompt = f"""你是一个面试评估专家。请根据以下信息评估候选人的回答。
 
@@ -435,18 +453,29 @@ def _build_evaluation_prompt(
 
 ## 候选人职责背景
 {responsibility}
+
+## 回答与参考答案的相似度
+{similarity_score:.2%}
+
+## 企业最佳实践参考答案
 """
-    
-    if enterprise_docs:
-        prompt += "\n## 企业最佳实践参考答案\n"
-        for i, doc in enumerate(enterprise_docs, 1):
-            prompt += f"\n{i}. {doc.content}\n"
-    
-    prompt += "\n请从以下几个方面评估：\n"
-    prompt += "1. 回答的正确性\n"
-    prompt += "2. 回答的完整性\n"
-    prompt += "3. 与企业最佳实践的差距\n"
-    
+
+    for i, doc in enumerate(enterprise_docs, 1):
+        prompt += f"\n{i}. {doc.content}\n"
+
+    prompt += """
+请结合相似度分数和参考答案，从以下几个方面评估：
+1. 回答的正确性
+2. 回答的完整性
+3. 与企业最佳实践的差距
+4. 相似度分数对评估的参考价值
+
+评估时：
+- 相似度 > 0.8：回答与标准答案高度一致，可适当简化评估
+- 相似度 0.5-0.8：回答部分一致，需指出具体差距
+- 相似度 < 0.5：回答与标准答案差距较大，需详细指出问题
+"""
+
     return prompt
 ```
 
