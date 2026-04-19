@@ -1,98 +1,16 @@
 """
-Interview Agent State Definitions - 短期记忆 (LangGraph State)
+Interview Agent State Definitions - Agent层专用状态
+
+仅保留LangGraph运行时专用的 InterviewState 类型。
+其他类型已迁移到 domain/ 和 session/ 层。
 """
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from enum import Enum
 from typing import Optional, Literal
 
-
-class InterviewMode(str, Enum):
-    """面试模式"""
-    FREE = "free"           # 自由问答
-    TRAINING = "training"   # 专项训练
-
-
-class FeedbackMode(str, Enum):
-    """反馈模式"""
-    REALTIME = "realtime"   # 实时点评
-    RECORDED = "recorded"   # 全程记录
-
-
-class FeedbackType(str, Enum):
-    """反馈类型"""
-    COMMENT = "comment"       # 点评 - 正面评价
-    CORRECTION = "correction" # 纠错 - 直接给出正确答案
-    GUIDANCE = "guidance"     # 引导 - 提示性追问
-    REMINDER = "reminder"     # 提醒 - 连续答错提醒
-
-
-class SessionStatus(str, Enum):
-    """会话状态"""
-    ACTIVE = "active"
-    COMPLETED = "completed"
-    CANCELLED = "cancelled"
-
-
-class QuestionType(str, Enum):
-    """问题类型"""
-    INITIAL = "initial"           # 初始问题
-    FOLLOWUP = "followup"         # 追问
-    GUIDANCE = "guidance"         # 引导性问题
-    CLARIFICATION = "clarification"  # 澄清问题
-
-
-class FollowupStrategy(str, Enum):
-    """追问策略"""
-    IMMEDIATE = "immediate"       # 立即追问 - 中等偏差时使用
-    DEFERRED = "deferred"         # 延迟追问 - 轻微偏差时使用
-    SKIP = "skip"                 # 跳过追问 - 高偏差或低偏差时使用
-
-
-@dataclass(frozen=True)
-class Question:
-    """面试问题"""
-    content: str
-    question_type: QuestionType = QuestionType.INITIAL
-    series: int = 1
-    number: int = 1
-    parent_question_id: Optional[str] = None  # 追问链父问题
-
-
-@dataclass(frozen=True)
-class Answer:
-    """用户回答"""
-    question_id: str
-    content: str
-    deviation_score: float = 1.0  # 0-1, 1表示完全符合标准回答
-
-
-@dataclass(frozen=True)
-class Feedback:
-    """面试反馈"""
-    question_id: str
-    content: str
-    is_correct: bool = True
-    guidance: Optional[str] = None
-    feedback_type: Optional["FeedbackType"] = None
-
-
-@dataclass(frozen=True)
-class SeriesRecord:
-    """
-    单个系列的状态记录
-
-    Attributes:
-        series: 系列号
-        questions: 该系列的问题列表
-        answers: 该系列的回答列表
-        completed: 该系列是否已完成
-    """
-    series: int
-    questions: tuple[Question, ...] = field(default_factory=tuple)
-    answers: tuple[Answer, ...] = field(default_factory=tuple)
-    completed: bool = False
+from src.domain.enums import InterviewMode, FeedbackMode
+from src.domain.models import Question, Answer, Feedback, SeriesRecord
 
 
 @dataclass(frozen=True)
@@ -160,165 +78,12 @@ class InterviewState:
     # Phase tracking
     phase: Literal["init", "warmup", "initial", "followup", "final_feedback"] = "init"
 
+    # Enterprise KB 相关字段
+    enterprise_docs: list = field(default_factory=list)  # 当前问题相关的企业知识文档
+    enterprise_docs_retrieved: bool = False  # 是否已查询过企业知识库
+    current_module: Optional[str] = None  # 当前问题所属 module
+    current_skill_point: Optional[str] = None  # 当前问题关联的 skill_point
+    identified_modules: list[str] = field(default_factory=list)  # 简历中识别的所有 module
+
     # Routing action (used by decide_next_node and conditional edges)
     next_action: Optional[str] = None
-
-
-@dataclass
-class InterviewContext:
-    """
-    面试完整上下文 - 包含短期+短中期记忆
-
-    面试前加载，面试中更新，面试结束持久化
-    """
-    session_id: str
-    resume_id: str
-    knowledge_base_id: str  # RAG 知识库ID
-
-    # 面试配置
-    interview_mode: InterviewMode = InterviewMode.FREE
-    feedback_mode: FeedbackMode = FeedbackMode.RECORDED
-    error_threshold: int = 2
-    max_followup_depth: int = 3  # 最大追问深度
-
-    # 面试进度
-    current_series: int = 1
-    current_question_id: Optional[str] = None
-    phase: Literal["init", "warmup", "initial", "followup", "final_feedback"] = "init"
-
-    # 系列历史记录
-    series_history: dict[int, dict] = field(default_factory=dict)
-
-    # 回答记录
-    answers: list[dict] = field(default_factory=list)  # [{question_id, question, answer, deviation}]
-    feedbacks: list[dict] = field(default_factory=list)  # [{question_id, feedback, is_correct}]
-
-    # 追问链追踪
-    followup_depth: int = 0
-    followup_chain: list[str] = field(default_factory=list)
-
-    # 实时点评队列（用于流式输出）
-    # RECORDED 模式： [{question_id, deviation, is_correct}]
-    pending_feedbacks: list[dict] = field(default_factory=list)
-
-    # 元数据
-    created_at: datetime = field(default_factory=datetime.now)
-    error_count: int = 0
-
-    # LLM 上下文（运行时）
-    resume_context: str = ""  # 简历提取的上下文信息
-    knowledge_context: str = ""  # 知识库检索的上下文
-    current_knowledge: str = ""  # 当前问题相关的知识
-    question_contents: dict[str, str] = field(default_factory=dict)  # question_id -> question content
-
-    # 职责追踪（用于针对性提问）
-    responsibilities: tuple[str, ...] = field(default_factory=tuple)  # 所有职责列表
-    series_responsibility_map: dict[int, int] = field(default_factory=dict)  # series_num -> responsibility_index (shuffled)
-    current_responsibility_index: int = 0  # 当前职责索引
-    current_project_index: int = 0  # 当前项目索引
-
-
-@dataclass(frozen=True)
-class FinalFeedback:
-    """
-    最终面试反馈
-
-    适用于 RECORDED 模式，面试结束时统一生成
-
-    Attributes:
-        overall_score: 整体评分 (0-1)
-        series_scores: 各系列评分 {series_number: score}
-        strengths: 优点列表
-        weaknesses: 缺点列表
-        suggestions: 建议列表
-    """
-    overall_score: float
-    series_scores: dict[int, float]
-    strengths: list[str]
-    weaknesses: list[str]
-    suggestions: list[str]
-
-
-# =============================================================================
-# Context Catch Snapshot Data Classes
-# =============================================================================
-
-
-@dataclass(frozen=True)
-class ProgressSnapshot:
-    """
-    进度快照 - 规则提取
-
-    Attributes:
-        current_series: 当前系列号
-        current_question_index: 当前问题索引
-        current_phase: 当前阶段 (init/warmup/initial/followup/final_feedback)
-        series_history: 系列历史记录 {series_num: SeriesRecord}
-        followup_chain: 追问链
-        responsibilities: 职责列表
-    """
-    current_series: int = 1
-    current_question_index: int = 1
-    current_phase: str = "init"
-    series_history: dict[int, dict] = field(default_factory=dict)
-    followup_chain: list[str] = field(default_factory=list)
-    responsibilities: tuple[str, ...] = field(default_factory=tuple)
-
-
-@dataclass(frozen=True)
-class EvaluationSnapshot:
-    """
-    评估快照 - 规则提取
-
-    Attributes:
-        series_scores: 各系列得分
-        error_count: 当前连续错误次数
-        error_threshold: 错误阈值
-        mastered_questions: 已掌握问题
-        asked_logical_questions: 已问的逻辑问题
-    """
-    series_scores: dict[int, float] = field(default_factory=dict)
-    error_count: int = 0
-    error_threshold: int = 2
-    mastered_questions: dict[str, dict] = field(default_factory=dict)
-    asked_logical_questions: set[str] = field(default_factory=set)
-
-
-@dataclass(frozen=True)
-class InsightSummary:
-    """
-    洞察摘要 - LLM 生成
-
-    Attributes:
-        covered_technologies: 已覆盖技术点
-        weak_areas: 薄弱领域
-        error_patterns: 错误模式
-        followup_triggers: 追问触发原因
-        interview_continuity_note: 面试连续性备注
-    """
-    covered_technologies: list[str] = field(default_factory=list)
-    weak_areas: list[str] = field(default_factory=list)
-    error_patterns: list[str] = field(default_factory=list)
-    followup_triggers: list[str] = field(default_factory=list)
-    interview_continuity_note: str = ""
-
-
-@dataclass(frozen=True)
-class ContextSnapshotData:
-    """
-    Context Catch 压缩摘要（内存数据结构）
-
-    Attributes:
-        session_id: 会话ID
-        version: 版本号
-        timestamp: 时间戳
-        progress: 进度快照
-        evaluation: 评估快照
-        insights: LLM 洞察摘要
-    """
-    session_id: str
-    version: int
-    timestamp: datetime
-    progress: ProgressSnapshot
-    evaluation: EvaluationSnapshot
-    insights: InsightSummary
