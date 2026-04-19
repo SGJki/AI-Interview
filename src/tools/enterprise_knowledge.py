@@ -59,23 +59,21 @@ async def retrieve_enterprise_knowledge(
 
             return data.get("documents", [])
 
-    except httpx.TimeoutException:
-        logger.warning("Enterprise KB timeout, proceeding without it")
-        return []
-    except httpx.HTTPStatusError as e:
-        logger.warning(f"Enterprise KB returned {e.response.status_code}")
+    except (httpx.TimeoutException, httpx.HTTPStatusError, httpx.RequestError) as e:
+        logger.warning(f"Enterprise KB request failed: {e}")
         return []
     except Exception as e:
-        logger.error(f"Enterprise KB error: {e}")
-        return []
+        logger.error(f"Unexpected error in enterprise KB: {e}", exc_info=True)
+        raise
 
 
-async def ensure_enterprise_docs(state: InterviewState) -> tuple[list[dict], dict]:
+async def ensure_enterprise_docs(state: InterviewState, top_k: int = 3) -> tuple[list[dict], dict]:
     """
     Ensure enterprise docs are retrieved and cached in state.
 
     Args:
         state: InterviewState
+        top_k: Number of results to return
 
     Returns:
         tuple: (docs, state_updates)
@@ -88,7 +86,7 @@ async def ensure_enterprise_docs(state: InterviewState) -> tuple[list[dict], dic
     docs = await retrieve_enterprise_knowledge(
         module=state.current_module,
         skill_point=state.current_skill_point,
-        top_k=3,
+        top_k=top_k,
     )
 
     state_updates = {
