@@ -8,7 +8,6 @@ from src.agent.retry import async_retryable
 from src.agent.state import InterviewState
 from src.domain.models import Answer
 from src.services.llm_service import InterviewLLMService
-from src.tools.enterprise_knowledge import ensure_enterprise_docs
 
 logger = logging.getLogger(__name__)
 
@@ -29,9 +28,10 @@ async def evaluate_with_standard(state: InterviewState) -> dict:
     """使用标准答案评估用户回答
 
     Extracts question, user_answer, and standard_answer from state.
+    KB docs are already cached from question_agent.
     """
-    # Ensure enterprise docs are retrieved
-    docs, kb_state_updates = await ensure_enterprise_docs(state)
+    # Use cached enterprise docs (already retrieved by question_agent)
+    docs = state.enterprise_docs if state.enterprise_docs_retrieved else []
 
     # Extract from state
     question = state.current_question.content if state.current_question else ""
@@ -52,7 +52,6 @@ async def evaluate_with_standard(state: InterviewState) -> dict:
         standard_answer=standard_answer,
         enterprise_docs=docs if docs else None,
         error_key_points=["评估出错"],
-        kb_state_updates=kb_state_updates,
     )
 
 
@@ -64,7 +63,6 @@ async def _evaluate_answer_core(
     standard_answer: str | None,
     enterprise_docs: list[dict] | None,
     error_key_points: list[str],
-    kb_state_updates: dict,
 ) -> dict:
     """Shared evaluation logic for answer evaluation."""
     llm_service = get_llm_service()
@@ -108,13 +106,12 @@ async def _evaluate_answer_core(
     evaluation_results = getattr(state, "evaluation_results", {})
     evaluation_results[final_question_id] = result
 
-    # Merge state updates from KB retrieval
+    # Note: KB docs are already cached from question_agent
     updates = {
         "answers": {**state.answers, final_question_id: new_answer},
         "evaluation_results": evaluation_results,
         "error_count": new_error_count,
         "current_answer": new_answer,
-        **kb_state_updates,  # Include KB state updates
     }
 
     return updates
@@ -125,9 +122,10 @@ async def evaluate_without_standard(state: InterviewState) -> dict:
     """无标准答案时评估用户回答
 
     Extracts question and user_answer from state.
+    KB docs are already cached from question_agent.
     """
-    # Ensure enterprise docs are retrieved
-    docs, kb_state_updates = await ensure_enterprise_docs(state)
+    # Use cached enterprise docs (already retrieved by question_agent)
+    docs = state.enterprise_docs if state.enterprise_docs_retrieved else []
 
     # Extract from state
     question = state.current_question.content if state.current_question else ""
@@ -143,7 +141,6 @@ async def evaluate_without_standard(state: InterviewState) -> dict:
         standard_answer=None,
         enterprise_docs=docs if docs else None,
         error_key_points=["暂时无法评估"],
-        kb_state_updates=kb_state_updates,
     )
 
 
