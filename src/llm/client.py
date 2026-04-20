@@ -43,6 +43,7 @@ def get_llm_client() -> ChatOpenAI:
 def get_chat_model(
     temperature: float = 0.7,
     max_tokens: Optional[int] = None,
+    structured_output_schema: Optional[type] = None,
 ) -> ChatOpenAI:
     """
     获取配置不同的 Chat model 实例
@@ -50,21 +51,27 @@ def get_chat_model(
     Args:
         temperature: 采样温度
         max_tokens: 最大 token 数
+        structured_output_schema: Pydantic 模型类，用于结构化输出
 
     Returns:
-        ChatOpenAI 实例
+        ChatOpenAI 实例（若指定 structured_output_schema 则返回带结构化输出的实例）
     """
     from src.config import get_llm_config as get_cfg
 
     cfg = get_cfg()
 
-    return ChatOpenAI(
+    llm = ChatOpenAI(
         api_key=cfg.api_key,
         base_url=cfg.base_url,
         model=cfg.model,
         max_tokens=max_tokens or cfg.max_tokens,
         temperature=temperature,
     )
+
+    if structured_output_schema is not None:
+        return llm.with_structured_output(structured_output_schema)
+
+    return llm
 
 
 def _process_llm_response_content(content: str, include_reasoning: bool = False) -> str:

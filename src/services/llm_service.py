@@ -10,7 +10,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-from src.llm.client import invoke_llm, invoke_llm_stream
+from src.llm.client import invoke_llm, invoke_llm_stream, get_chat_model
 from src.llm.prompts import (
     QUESTION_GENERATION_PROMPT,
     ANSWER_EVALUATION_PROMPT,
@@ -21,7 +21,7 @@ from src.llm.prompts import (
 )
 from src.services.embedding_service import compute_similarity, compute_similarities
 from src.domain.enums import FeedbackType, QuestionType
-from src.domain.models import Question, Feedback
+from src.domain.models import Question, Feedback, QuestionResult
 
 # Scoring constants
 LLM_SCORE_WEIGHT = 0.7
@@ -103,6 +103,52 @@ class InterviewLLMService:
             number=question_num,
             parent_question_id=None,
         )
+
+    async def generate_question_structured(
+        self,
+        series_num: int = 1,
+        question_num: int = 1,
+        interview_mode: str = "free",
+        topic_area: str = "技术能力",
+        knowledge_context: str = "",
+        responsibility_context: str = "",
+    ) -> QuestionResult:
+        """
+        使用结构化输出生成面试问题
+
+        Returns:
+            QuestionResult: 包含问题内容、module 和 skill_point
+        """
+        from langchain_core.messages import HumanMessage, SystemMessage
+
+        prompt = QUESTION_GENERATION_PROMPT.format(
+            resume_info=self.resume_info,
+            series_num=series_num,
+            question_num=question_num,
+            interview_mode=interview_mode,
+            topic_area=topic_area,
+            knowledge_context=knowledge_context or "无相关上下文",
+            responsibility_context=responsibility_context or "",
+        )
+
+        # 使用结构化输出
+        llm = get_chat_model(temperature=0.7, structured_output_schema=QuestionResult)
+
+        messages = [
+            SystemMessage(content="你是一个专业的AI面试官。"),
+            HumanMessage(content=prompt),
+        ]
+
+        try:
+            result: QuestionResult = await llm.ainvoke(messages)
+            return result
+        except Exception as e:
+            logger.warning(f"Structured output failed: {e}, using fallback")
+            return QuestionResult(
+                question="请介绍一下你最近做的项目，以及在其中承担的角色？",
+                module="",
+                skill_point=""
+            )
 
     async def generate_question_stream(
         self,
