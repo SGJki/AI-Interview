@@ -69,14 +69,13 @@ class InterviewLLMService:
         Returns:
             生成的 Question 对象
         """
-        prompt = QUESTION_GENERATION_PROMPT.format(
-            resume_info=self.resume_info,
+        prompt = self._build_question_prompt(
             series_num=series_num,
             question_num=question_num,
             interview_mode=interview_mode,
             topic_area=topic_area,
-            knowledge_context=knowledge_context or "无相关上下文",
-            responsibility_context=responsibility_context or "",
+            knowledge_context=knowledge_context,
+            responsibility_context=responsibility_context,
         )
 
         try:
@@ -121,14 +120,13 @@ class InterviewLLMService:
         """
         from langchain_core.messages import HumanMessage, SystemMessage
 
-        prompt = QUESTION_GENERATION_PROMPT.format(
-            resume_info=self.resume_info,
+        prompt = self._build_question_prompt(
             series_num=series_num,
             question_num=question_num,
             interview_mode=interview_mode,
             topic_area=topic_area,
-            knowledge_context=knowledge_context or "无相关上下文",
-            responsibility_context=responsibility_context or "",
+            knowledge_context=knowledge_context,
+            responsibility_context=responsibility_context,
         )
 
         # 使用结构化输出
@@ -173,14 +171,13 @@ class InterviewLLMService:
         Yields:
             问题的每个 token
         """
-        prompt = QUESTION_GENERATION_PROMPT.format(
-            resume_info=self.resume_info,
+        prompt = self._build_question_prompt(
             series_num=series_num,
             question_num=question_num,
             interview_mode=interview_mode,
             topic_area=topic_area,
-            knowledge_context=knowledge_context or "无相关上下文",
-            responsibility_context=responsibility_context or "",
+            knowledge_context=knowledge_context,
+            responsibility_context=responsibility_context,
         )
 
         try:
@@ -578,9 +575,25 @@ user_answer: {user_answer}
         """
         self.conversation_history.append({"role": role, "content": content})
 
-    def clear_history(self):
-        """清空对话历史"""
-        self.conversation_history = []
+    def _build_question_prompt(
+        self,
+        series_num: int,
+        question_num: int,
+        interview_mode: str,
+        topic_area: str,
+        knowledge_context: str,
+        responsibility_context: str,
+    ) -> str:
+        """构建问题生成的提示词（供多个方法共享）"""
+        return QUESTION_GENERATION_PROMPT.format(
+            resume_info=self.resume_info,
+            series_num=series_num,
+            question_num=question_num,
+            interview_mode=interview_mode,
+            topic_area=topic_area,
+            knowledge_context=knowledge_context or "无相关上下文",
+            responsibility_context=responsibility_context or "",
+        )
 
     async def extract_resume_info(self, resume_content: str) -> dict:
         """

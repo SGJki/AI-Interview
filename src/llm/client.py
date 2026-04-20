@@ -10,8 +10,11 @@ from langchain_openai import ChatOpenAI
 from src.config import get_llm_config
 
 
-# 全局 LLM 客户端缓存
+# Global LLM client cache (non-structured output)
 _llm_client: Optional[ChatOpenAI] = None
+
+# Cache for structured output LLM instances keyed by schema type
+_structured_llm_cache: dict[type, ChatOpenAI] = {}
 
 
 def get_llm_client() -> ChatOpenAI:
@@ -60,18 +63,21 @@ def get_chat_model(
 
     cfg = get_cfg()
 
-    llm = ChatOpenAI(
-        api_key=cfg.api_key,
-        base_url=cfg.base_url,
-        model=cfg.model,
-        max_tokens=max_tokens or cfg.max_tokens,
-        temperature=temperature,
-    )
-
+    # If structured output is requested, use cached instance or create new one
     if structured_output_schema is not None:
-        return llm.with_structured_output(structured_output_schema)
+        if structured_output_schema not in _structured_llm_cache:
+            llm = ChatOpenAI(
+                api_key=cfg.api_key,
+                base_url=cfg.base_url,
+                model=cfg.model,
+                max_tokens=max_tokens or cfg.max_tokens,
+                temperature=temperature,
+            )
+            _structured_llm_cache[structured_output_schema] = llm.with_structured_output(structured_output_schema)
+        return _structured_llm_cache[structured_output_schema]
 
-    return llm
+    # Non-structured output: use singleton
+    return get_llm_client()
 
 
 def _process_llm_response_content(content: str, include_reasoning: bool = False) -> str:

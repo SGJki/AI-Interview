@@ -104,7 +104,8 @@ async def generate_initial(
     question_id = generate_question_id()
 
     # 触发后台 KB 查询（用户思考时可以并行进行）
-    if module or skill_point:
+    # 仅在尚未查询过 KB 时触发，避免重复查询
+    if (module or skill_point) and not state.enterprise_docs_retrieved:
         asyncio.create_task(_ensure_enterprise_docs_bg(state))
 
     return {
@@ -168,7 +169,8 @@ async def generate_followup(
     new_depth = state.followup_depth + 1
 
     # 触发后台 KB 查询（用户思考时可以并行进行）
-    if module or skill_point:
+    # 仅在尚未查询过 KB 时触发，避免重复查询
+    if (module or skill_point) and not state.enterprise_docs_retrieved:
         asyncio.create_task(_ensure_enterprise_docs_bg(state))
 
     return {
