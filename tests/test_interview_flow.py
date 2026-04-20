@@ -4,13 +4,9 @@ Tests for AI Interview Agent - Single-turn Q&A Flow
 
 import pytest
 from unittest.mock import MagicMock, AsyncMock
-from src.agent.state import (
-    InterviewMode,
-    FeedbackMode,
-    QuestionType,
-    Question,
-    InterviewState,
-)
+from src.domain.enums import InterviewMode, FeedbackMode, QuestionType
+from src.domain.models import Question
+from src.agent.state import InterviewState
 from src.services.interview_service import InterviewService
 
 

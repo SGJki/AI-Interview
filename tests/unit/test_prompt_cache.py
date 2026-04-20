@@ -3,7 +3,7 @@ Unit tests for PromptCache
 """
 import pytest
 from datetime import datetime
-from unittest.mock import MagicMock, AsyncMock
+from unittest.mock import MagicMock, AsyncMock, patch
 from src.core.prompt_cache import PromptCacheState, CacheKey, PromptCache
 
 
@@ -165,3 +165,106 @@ class TestValidateCache:
 
         assert state.is_valid is False
         assert state.miss_count == 1
+
+
+class TestValidateCacheWithLLM:
+    """Tests for validate_cache_with_llm method."""
+
+    @pytest.fixture
+    def cache(self):
+        return PromptCache()
+
+    @pytest.fixture
+    def mock_llm_response_cached(self):
+        """Mock LLM response with cached_tokens > 0."""
+        from src.llm.usage import LLMResponse, PromptTokensDetails, LLMUsage
+
+        return LLMResponse(
+            content="缓存验证响应",
+            usage=LLMUsage(
+                prompt_tokens=100,
+                completion_tokens=50,
+                prompt_tokens_details=PromptTokensDetails(cached_tokens=80)
+            )
+        )
+
+    @pytest.fixture
+    def mock_llm_response_not_cached(self):
+        """Mock LLM response with cached_tokens = 0."""
+        from src.llm.usage import LLMResponse, PromptTokensDetails, LLMUsage
+
+        return LLMResponse(
+            content="非缓存响应",
+            usage=LLMUsage(
+                prompt_tokens=100,
+                completion_tokens=50,
+                prompt_tokens_details=PromptTokensDetails(cached_tokens=0)
+            )
+        )
+
+    @pytest.mark.asyncio
+    async def test_validate_cache_with_llm_cached(self, cache, mock_llm_response_cached):
+        """Test validate_cache_with_llm when cache hits."""
+        with patch('src.llm.client.invoke_llm_with_usage', new_callable=AsyncMock) as mock_invoke:
+            mock_invoke.return_value = mock_llm_response_cached
+
+            state = await cache.validate_cache_with_llm(
+                session_id="session-123",
+                resume_id="resume-456",
+                responsibilities=["职责1", "职责2"],
+                system_prompt="测试系统提示词",
+                test_prompt="测试提示词",
+            )
+
+            assert state.is_valid is True
+            assert state.last_cached_tokens == 80
+            assert state.hit_count >= 0
+
+    @pytest.mark.asyncio
+    async def test_validate_cache_with_llm_not_cached(self, cache, mock_llm_response_not_cached):
+        """Test validate_cache_with_llm when cache misses."""
+        with patch('src.llm.client.invoke_llm_with_usage', new_callable=AsyncMock) as mock_invoke:
+            mock_invoke.return_value = mock_llm_response_not_cached
+
+            state = await cache.validate_cache_with_llm(
+                session_id="session-123",
+                resume_id="resume-456",
+                responsibilities=["职责1", "职责2"],
+                system_prompt="测试系统提示词",
+                test_prompt="测试提示词",
+            )
+
+            assert state.is_valid is False
+            assert state.last_cached_tokens == 0
+
+    @pytest.mark.asyncio
+    async def test_validate_cache_with_llm_exception(self, cache):
+        """Test validate_cache_with_llm handles exceptions."""
+        with patch('src.llm.client.invoke_llm_with_usage', new_callable=AsyncMock) as mock_invoke:
+            mock_invoke.side_effect = Exception("LLM 调用失败")
+
+            with pytest.raises(Exception, match="LLM 调用失败"):
+                await cache.validate_cache_with_llm(
+                    session_id="session-123",
+                    resume_id="resume-456",
+                    responsibilities=["职责1"],
+                    system_prompt="测试系统提示词",
+                )
+
+    @pytest.mark.asyncio
+    async def test_validate_cache_with_llm_records_state(self, cache, mock_llm_response_cached):
+        """Test validate_cache_with_llm records state to cache store."""
+        with patch('src.llm.client.invoke_llm_with_usage', new_callable=AsyncMock) as mock_invoke:
+            mock_invoke.return_value = mock_llm_response_cached
+
+            await cache.validate_cache_with_llm(
+                session_id="session-123",
+                resume_id="resume-456",
+                responsibilities=["职责1"],
+                system_prompt="测试",
+            )
+
+            # Verify state was recorded
+            recorded_state = await cache.get_cache_state("session-123")
+            assert recorded_state is not None
+            assert recorded_state.cache_key is not None

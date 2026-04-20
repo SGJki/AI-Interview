@@ -12,7 +12,9 @@ import pytest
 from dataclasses import replace
 from src.agent.question_agent import should_continue_followup
 from src.agent.orchestrator import decide_next_node
-from src.agent.state import InterviewState, Question, QuestionType, Answer
+from src.agent.state import InterviewState
+from src.domain.enums import QuestionType
+from src.domain.models import Question, Answer
 
 
 class TestBug1QuestionAgentEvaluationResults:

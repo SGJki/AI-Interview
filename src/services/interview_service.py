@@ -12,21 +12,23 @@ from dataclasses import dataclass, replace
 
 logger = logging.getLogger(__name__)
 
-from src.agent.state import (
-    InterviewState,
-    InterviewContext,
+from src.agent.state import InterviewState
+from src.session.context import InterviewContext
+from src.domain.enums import (
     InterviewMode,
     FeedbackMode,
     FeedbackType,
     FollowupStrategy,
-    Question,
     QuestionType,
+)
+from src.domain.models import (
+    Question,
     Answer,
     Feedback,
     SeriesRecord,
-    FinalFeedback,
 )
-from src.tools.memory_tools import (
+from src.session.snapshot import FinalFeedback
+from src.infrastructure.session_store import (
     save_to_session_memory,
     clear_session_memory,
     cache_next_series_question,

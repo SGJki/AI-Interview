@@ -26,7 +26,8 @@ from src.api.models import (
     FeedbackData,
     InterviewResult,
 )
-from src.agent.state import InterviewMode, FeedbackMode, Question, QuestionType, Answer
+from src.domain.enums import InterviewMode, FeedbackMode, QuestionType
+from src.domain.models import Question, Answer
 from src.services.interview_service import InterviewService
 
 
@@ -204,7 +205,8 @@ class TestFeedbackToData:
     def test_converts_feedback_with_enum_type(self):
         """Test converts feedback with enum feedback_type"""
         from src.api.interview import _feedback_to_data
-        from src.agent.state import Feedback, FeedbackType
+        from src.domain.models import Feedback
+        from src.domain.enums import FeedbackType
 
         feedback = Feedback(
             question_id="q-123",
@@ -224,7 +226,7 @@ class TestFeedbackToData:
     def test_handles_string_feedback_type(self):
         """Test handles feedback_type as string"""
         from src.api.interview import _feedback_to_data
-        from src.agent.state import Feedback
+        from src.domain.models import Feedback
 
         feedback = Feedback(
             question_id="q-123",
@@ -316,7 +318,7 @@ class TestGetQuestionEndpoint:
         mock_context.pending_feedbacks = []
         mock_context.question_contents = {"q-test-1-1": "测试问题内容"}
 
-        with patch('src.tools.memory_tools.SessionStateManager') as MockSM:
+        with patch('src.infrastructure.session_store.SessionStateManager') as MockSM:
             mock_manager = MagicMock()
             mock_manager.load_interview_state = AsyncMock(return_value=mock_context)
             MockSM.return_value = mock_manager
@@ -349,7 +351,7 @@ class TestSubmitAnswerEndpoint:
     async def test_submit_answer_session_not_found(self):
         """Test submit_answer when session not found"""
         from src.api.interview import submit_answer
-        from src.tools.memory_tools import SessionStateManager
+        from src.infrastructure.session_store import SessionStateManager
         from fastapi import HTTPException
 
         request = SubmitAnswerRequest(
@@ -358,7 +360,7 @@ class TestSubmitAnswerEndpoint:
             user_answer="我的答案",
         )
 
-        with patch('src.tools.memory_tools.SessionStateManager') as MockSM:
+        with patch('src.infrastructure.session_store.SessionStateManager') as MockSM:
             mock_manager = MagicMock()
             mock_manager.load_interview_state = AsyncMock(return_value=None)
             MockSM.return_value = mock_manager
@@ -376,7 +378,7 @@ class TestSubmitAnswerEndpoint:
     async def test_submit_answer_success(self):
         """Test successful answer submission returns SSE EventSourceResponse"""
         from src.api.interview import submit_answer
-        from src.tools.memory_tools import SessionStateManager
+        from src.infrastructure.session_store import SessionStateManager
         from sse_starlette.sse import EventSourceResponse
 
         mock_context = MagicMock()
@@ -401,7 +403,7 @@ class TestSubmitAnswerEndpoint:
             user_answer="我的答案",
         )
 
-        with patch('src.tools.memory_tools.SessionStateManager') as MockSM:
+        with patch('src.infrastructure.session_store.SessionStateManager') as MockSM:
             mock_manager = MagicMock()
             mock_manager.load_interview_state = AsyncMock(return_value=mock_context)
             mock_manager.save_interview_state = AsyncMock()
@@ -447,9 +449,9 @@ class TestEndInterviewEndpoint:
     async def test_end_interview_no_active_session(self):
         """Test end_interview when no active session"""
         from src.api.interview import end_interview
-        from src.tools.memory_tools import SessionStateManager
+        from src.infrastructure.session_store import SessionStateManager
 
-        with patch('src.tools.memory_tools.SessionStateManager') as MockSM:
+        with patch('src.infrastructure.session_store.SessionStateManager') as MockSM:
             mock_manager = MagicMock()
             mock_manager.load_interview_state = AsyncMock(return_value=None)
             MockSM.return_value = mock_manager
@@ -463,8 +465,8 @@ class TestEndInterviewEndpoint:
     async def test_end_interview_success(self):
         """Test successful interview end"""
         from src.api.interview import end_interview
-        from src.tools.memory_tools import SessionStateManager
-        from src.agent.state import FinalFeedback
+        from src.infrastructure.session_store import SessionStateManager
+        from src.session.snapshot import FinalFeedback
 
         mock_context = MagicMock()
         mock_context.resume_id = "resume-123"
@@ -491,7 +493,7 @@ class TestEndInterviewEndpoint:
             ),
         }
 
-        with patch('src.tools.memory_tools.SessionStateManager') as MockSM:
+        with patch('src.infrastructure.session_store.SessionStateManager') as MockSM:
             mock_manager = MagicMock()
             mock_manager.load_interview_state = AsyncMock(return_value=mock_context)
             MockSM.return_value = mock_manager
@@ -512,7 +514,7 @@ class TestEndInterviewEndpoint:
     async def test_end_interview_handles_exception(self):
         """Test end_interview handles exceptions"""
         from src.api.interview import end_interview
-        from src.tools.memory_tools import SessionStateManager
+        from src.infrastructure.session_store import SessionStateManager
         from fastapi import HTTPException
 
         mock_context = MagicMock()
@@ -522,7 +524,7 @@ class TestEndInterviewEndpoint:
         mock_context.feedback_mode = FeedbackMode.RECORDED
         mock_context.error_threshold = 2
 
-        with patch('src.tools.memory_tools.SessionStateManager') as MockSM:
+        with patch('src.infrastructure.session_store.SessionStateManager') as MockSM:
             mock_manager = MagicMock()
             mock_manager.load_interview_state = AsyncMock(return_value=mock_context)
             MockSM.return_value = mock_manager

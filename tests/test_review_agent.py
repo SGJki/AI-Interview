@@ -12,7 +12,9 @@ from src.agent.review_agent import (
     create_review_agent_graph,
     review_agent_graph,
 )
-from src.agent.state import InterviewState, Answer, Question, QuestionType
+from src.agent.state import InterviewState
+from src.domain.models import Answer, Question
+from src.domain.enums import QuestionType
 
 
 class TestReviewAgentGraph:

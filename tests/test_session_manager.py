@@ -8,16 +8,11 @@ import pytest
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime
-from src.agent.state import (
-    InterviewState,
-    InterviewContext,
-    InterviewMode,
-    FeedbackMode,
-    QuestionType,
-    Question,
-    Answer,
-)
-from src.tools.memory_tools import (
+from src.agent.state import InterviewState
+from src.session.context import InterviewContext
+from src.domain.enums import InterviewMode, FeedbackMode, QuestionType
+from src.domain.models import Question, Answer
+from src.infrastructure.session_store import (
     SessionStateManager,
     SessionHealthMonitor,
 )
@@ -47,7 +42,7 @@ class TestSessionStateManager:
     @pytest.fixture
     def mock_redis(self):
         """Create a mock Redis client with async methods"""
-        with patch('src.tools.memory_tools.get_redis_client') as mock:
+        with patch('src.infrastructure.session_store.get_redis_client') as mock:
             client = MagicMock()
             # Set async methods to AsyncMock
             client.setex = AsyncMock(return_value=True)
@@ -234,7 +229,7 @@ class TestSessionHealthMonitor:
     @pytest.fixture
     def mock_redis(self):
         """Create a mock Redis client with async methods"""
-        with patch('src.tools.memory_tools.get_redis_client') as mock:
+        with patch('src.infrastructure.session_store.get_redis_client') as mock:
             client = MagicMock()
             # Set async methods to AsyncMock
             client.setex = AsyncMock(return_value=True)
@@ -361,7 +356,7 @@ class TestSessionRecovery:
     @pytest.fixture
     def mock_redis(self):
         """Create a mock Redis client with async methods"""
-        with patch('src.tools.memory_tools.get_redis_client') as mock:
+        with patch('src.infrastructure.session_store.get_redis_client') as mock:
             client = MagicMock()
             # Set async methods to AsyncMock
             client.setex = AsyncMock(return_value=True)
@@ -457,7 +452,7 @@ class TestSessionExpiration:
     @pytest.fixture
     def mock_redis(self):
         """Create a mock Redis client with async methods"""
-        with patch('src.tools.memory_tools.get_redis_client') as mock:
+        with patch('src.infrastructure.session_store.get_redis_client') as mock:
             client = MagicMock()
             # Set async methods to AsyncMock
             client.setex = AsyncMock(return_value=True)

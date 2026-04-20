@@ -9,16 +9,10 @@ Tests for Real-time Feedback Mode - Phase 2
 
 import pytest
 from unittest.mock import MagicMock, AsyncMock, patch
-from src.agent.state import (
-    Feedback,
-    FeedbackType,
-    FeedbackMode,
-    InterviewMode,
-    InterviewState,
-    InterviewContext,
-    Question,
-    QuestionType,
-)
+from src.domain.enums import FeedbackType, FeedbackMode, InterviewMode, QuestionType
+from src.domain.models import Feedback, Question
+from src.agent.state import InterviewState
+from src.session.context import InterviewContext
 from src.services.interview_service import InterviewService
 
 
@@ -48,12 +42,12 @@ class TestFeedbackType:
 
     def test_feedback_type_enum_exists(self):
         """测试 FeedbackType 枚举存在"""
-        from src.agent.state import FeedbackType
+        from src.domain.enums import FeedbackType
         assert FeedbackType is not None
 
     def test_feedback_type_values(self):
         """测试 FeedbackType 枚举值"""
-        from src.agent.state import FeedbackType
+        from src.domain.enums import FeedbackType
         assert FeedbackType.COMMENT.value == "comment"
         assert FeedbackType.CORRECTION.value == "correction"
         assert FeedbackType.GUIDANCE.value == "guidance"
@@ -75,7 +69,7 @@ class TestFeedbackStructure:
 
     def test_feedback_accepts_feedback_type(self):
         """测试 Feedback 接受 feedback_type 参数"""
-        from src.agent.state import FeedbackType
+        from src.domain.enums import FeedbackType
         feedback = Feedback(
             question_id="q-1",
             content="测试反馈",
@@ -107,7 +101,7 @@ class TestRealtimeFeedback:
     @pytest.mark.asyncio
     async def test_generate_feedback_correction_low_deviation(self, service, mock_state):
         """测试 deviation_score < 0.3 时生成 CORRECTION 类型反馈"""
-        from src.agent.state import FeedbackType
+        from src.domain.enums import FeedbackType
 
         service.state = mock_state
 
@@ -134,7 +128,7 @@ class TestRealtimeFeedback:
     @pytest.mark.asyncio
     async def test_generate_feedback_guidance_medium_deviation(self, service, mock_state):
         """测试 0.3 <= deviation_score < 0.6 时生成 GUIDANCE 类型反馈"""
-        from src.agent.state import FeedbackType
+        from src.domain.enums import FeedbackType
 
         service.state = mock_state
 
@@ -160,7 +154,7 @@ class TestRealtimeFeedback:
     @pytest.mark.asyncio
     async def test_generate_feedback_comment_high_deviation(self, service, mock_state):
         """测试 deviation_score >= 0.6 时生成 COMMENT 类型反馈"""
-        from src.agent.state import FeedbackType
+        from src.domain.enums import FeedbackType
 
         service.state = mock_state
 
@@ -186,7 +180,7 @@ class TestRealtimeFeedback:
     @pytest.mark.asyncio
     async def test_generate_feedback_boundary_0_3(self, service, mock_state):
         """测试 deviation_score = 0.3 边界情况"""
-        from src.agent.state import FeedbackType
+        from src.domain.enums import FeedbackType
 
         service.state = mock_state
 
@@ -212,7 +206,7 @@ class TestRealtimeFeedback:
     @pytest.mark.asyncio
     async def test_generate_feedback_boundary_0_6(self, service, mock_state):
         """测试 deviation_score = 0.6 边界情况"""
-        from src.agent.state import FeedbackType
+        from src.domain.enums import FeedbackType
 
         service.state = mock_state
 
@@ -283,7 +277,7 @@ class TestReminderLogic:
     @pytest.mark.asyncio
     async def test_reminder_triggered_on_threshold(self, service, mock_state_with_error):
         """测试连续答错达到阈值时触发 REMINDER"""
-        from src.agent.state import FeedbackType
+        from src.domain.enums import FeedbackType
 
         service.state = mock_state_with_error
 
@@ -317,7 +311,7 @@ class TestReminderLogic:
     @pytest.mark.asyncio
     async def test_no_reminder_below_threshold(self, service, mock_state_no_error):
         """测试连续答错未达到阈值时不触发 REMINDER"""
-        from src.agent.state import FeedbackType
+        from src.domain.enums import FeedbackType
         from dataclasses import replace
 
         # error_count = 0，未达到阈值 2
@@ -448,7 +442,7 @@ class TestStreamingFeedback:
 
     def test_feedback_type_for_sse_streaming(self):
         """测试反馈类型适合 SSE 流式输出"""
-        from src.agent.state import FeedbackType
+        from src.domain.enums import FeedbackType
 
         # 验证 FeedbackType 可以用于 SSE 事件类型标记
         feedback_types = [

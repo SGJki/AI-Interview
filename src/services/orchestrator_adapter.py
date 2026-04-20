@@ -8,17 +8,12 @@ OrchestratorAdapter - 用增量 API 包装 LangGraph Orchestrator
 """
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional, Any
 
-from src.agent.state import (
-    InterviewState,
-    Question,
-    Answer,
-    Feedback,
-    InterviewMode,
-    FeedbackMode,
-)
+from src.agent.state import InterviewState
+from src.domain.enums import InterviewMode, FeedbackMode
+from src.domain.models import Question, Answer, Feedback
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +137,7 @@ class OrchestratorAdapter:
             self.state = self._merge_state(self.state, result)
 
         # 决定下一步
-        decision = await self.graph.ainvoke(
+        await self.graph.ainvoke(
             self.state,
             interrupt_before=["question_agent"]
         )
@@ -196,14 +191,7 @@ class OrchestratorAdapter:
         total_questions = len(self.state.answers)
         total_series = self.state.current_series
 
-        # TODO: 生成最终反馈 (需要 aggregation 逻辑)
-        final_feedback = {
-            "overall_score": 0.8,  # 占位
-            "series_scores": {i: 0.8 for i in range(1, total_series + 1)},
-            "strengths": ["表达清晰", "技术深度好"],
-            "weaknesses": ["可以更详细"],
-            "suggestions": ["多练习系统设计"],
-        }
+        final_feedback = self._generate_final_feedback()
 
         return {
             "status": "completed",
@@ -211,6 +199,51 @@ class OrchestratorAdapter:
             "total_series": total_series,
             "total_questions": total_questions,
             "final_feedback": final_feedback,
+        }
+
+    def _generate_final_feedback(self) -> dict:
+        """
+        Generate final feedback from evaluation results.
+
+        Returns:
+            dict with overall_score, series_scores, strengths, weaknesses, suggestions
+        """
+        if not self.state.evaluation_results:
+            return {
+                "overall_score": 0.0,
+                "series_scores": {},
+                "strengths": ["暂无评估数据"],
+                "weaknesses": ["暂无评估数据"],
+                "suggestions": ["暂无建议"],
+            }
+
+        # Get evaluations
+        evaluations = list(self.state.evaluation_results.values())
+
+        # Calculate series scores
+        # For simplicity, group all evaluations under current_series
+        series_scores = {}
+        if evaluations:
+            series_avg = aggregate_series_score(evaluations)
+            series_scores = {self.state.current_series: series_avg}
+
+        # Calculate overall score
+        overall_score = aggregate_overall_score(series_scores)
+
+        # Extract strengths and weaknesses
+        feedbacks = list(self.state.feedbacks.values())
+        strengths = extract_strengths(evaluations, feedbacks)
+        weaknesses = extract_weaknesses(evaluations, feedbacks)
+
+        # Generate suggestions
+        suggestions = generate_suggestions(weaknesses, overall_score)
+
+        return {
+            "overall_score": round(overall_score, 2),
+            "series_scores": {k: round(v, 2) for k, v in series_scores.items()},
+            "strengths": strengths,
+            "weaknesses": weaknesses,
+            "suggestions": suggestions,
         }
 
     def _merge_state(self, current: InterviewState, updates: dict) -> InterviewState:
@@ -232,3 +265,112 @@ class OrchestratorAdapter:
         except Exception as e:
             logger.warning(f"Failed to merge state: {e}")
             return current
+
+
+def aggregate_series_score(evaluations: list[dict]) -> float:
+    """
+    Calculate average score for a series.
+
+    Args:
+        evaluations: List of evaluation result dicts with deviation_score
+
+    Returns:
+        Average deviation score (0-1), or 0.0 if empty
+    """
+    if not evaluations:
+        return 0.0
+    scores = [e.get("deviation_score", 0.0) for e in evaluations]
+    return sum(scores) / len(scores)
+
+
+def aggregate_overall_score(series_scores: dict[int, float]) -> float:
+    """
+    Calculate overall score from series scores.
+
+    Args:
+        series_scores: Dict mapping series number to score
+
+    Returns:
+        Average score across series, or 0.0 if empty
+    """
+    if not series_scores:
+        return 0.0
+    return sum(series_scores.values()) / len(series_scores)
+
+
+def extract_strengths(evaluations: list[dict], feedbacks: list[dict]) -> list[str]:
+    """
+    Extract strengths from evaluations and feedbacks.
+
+    Args:
+        evaluations: List of evaluation result dicts
+        feedbacks: List of feedback dicts
+
+    Returns:
+        List of strength strings
+    """
+    strengths = []
+    # High score evaluations (deviation >= 0.8)
+    high_scores = [e for e in evaluations if e.get("deviation_score", 0) >= 0.8]
+    if len(high_scores) >= 2:
+        strengths.append(f"整体表现良好，在 {len(high_scores)} 个问题中回答准确")
+    elif high_scores:
+        strengths.append("部分问题回答准确")
+
+    # Collect key points from high scores
+    for e in high_scores:
+        key_points = e.get("key_points", [])
+        strengths.extend(key_points[:2])  # Add up to 2 key points
+
+    return strengths if strengths else ["暂无明显优点"]
+
+
+def extract_weaknesses(evaluations: list[dict], feedbacks: list[dict]) -> list[str]:
+    """
+    Extract weaknesses from evaluations and feedbacks.
+
+    Args:
+        evaluations: List of evaluation result dicts
+        feedbacks: List of feedback dicts
+
+    Returns:
+        List of weakness strings
+    """
+    weaknesses = []
+    # Low score evaluations (deviation < 0.4)
+    low_scores = [e for e in evaluations if e.get("deviation_score", 0) < 0.4]
+    if low_scores:
+        weaknesses.append(f"有 {len(low_scores)} 个问题回答不够深入，需要加强")
+
+    # Incorrect answers
+    incorrect = [e for e in evaluations if not e.get("is_correct", True)]
+    if len(incorrect) >= 2:
+        weaknesses.append(f"有 {len(incorrect)} 个问题回答错误")
+
+    return weaknesses if weaknesses else ["暂无明显缺点"]
+
+
+def generate_suggestions(weaknesses: list[str], overall_score: float) -> list[str]:
+    """
+    Generate suggestions based on weaknesses and overall score.
+
+    Args:
+        weaknesses: List of weakness strings
+        overall_score: Overall deviation score (0-1)
+
+    Returns:
+        List of suggestion strings
+    """
+    suggestions = list(weaknesses)  # Start with weaknesses
+
+    # Add score-based suggestion
+    if overall_score >= 0.8:
+        suggestions.append("整体表现优秀，建议挑战更深入的问题")
+    elif overall_score >= 0.6:
+        suggestions.append("基础扎实，可加强技术细节的理解")
+    elif overall_score >= 0.4:
+        suggestions.append("需要加强核心知识点的掌握")
+    else:
+        suggestions.append("建议系统复习相关技术知识")
+
+    return suggestions

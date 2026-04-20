@@ -20,8 +20,8 @@ from dataclasses import asdict
 import redis.asyncio as redis
 
 if TYPE_CHECKING:
-    from src.agent.state import (
-        InterviewContext,
+    from src.session.context import InterviewContext
+    from src.session.snapshot import (
         ProgressSnapshot,
         EvaluationSnapshot,
         InsightSummary,
@@ -45,8 +45,8 @@ def _get_redis_client() -> redis.Redis:
 
 def _get_state_classes():
     """Lazy import state classes to avoid circular imports"""
-    from src.agent.state import (
-        InterviewContext,
+    from src.session.context import InterviewContext
+    from src.session.snapshot import (
         ProgressSnapshot,
         EvaluationSnapshot,
         InsightSummary,

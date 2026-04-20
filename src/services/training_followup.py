@@ -14,7 +14,8 @@ from enum import IntEnum
 from dataclasses import dataclass
 from typing import Optional
 
-from src.agent.state import Question, QuestionType
+from src.domain.enums import QuestionType
+from src.domain.models import Question
 from src.services.training_knowledge_matcher import (
     KnowledgeMatchResult,
     TrainingKnowledgeMatcher,

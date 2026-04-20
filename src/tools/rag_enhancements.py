@@ -10,12 +10,16 @@ Advanced retrieval strategies including:
 
 from enum import Enum
 from typing import Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+import logging
+import re
 
 from langchain_core.documents import Document
 from langchain_core.retrievers import BaseRetriever
 
 from src.tools.rag_tools import get_vectorstore
+
+logger = logging.getLogger(__name__)
 
 
 # =============================================================================
@@ -41,6 +45,168 @@ class FusionType(Enum):
     RRF = "rrf"   # Reciprocal Rank Fusion
     DRR = "drr"   # Distribution-Based Rank
     SBERT = "sbert"  # Sentence BERT Fusion
+
+
+# =============================================================================
+# BM25 Sparse Retriever
+# =============================================================================
+
+class BM25SparseRetriever(BaseRetriever):
+    """
+    BM25-based sparse retriever for keyword/exact term matching.
+
+    BM25 (Best Matching 25) is a probabilistic ranking function used for
+    text search. Unlike dense retrieval which uses embeddings, BM25 matches
+    exact terms and is good for:
+    - Exact keyword searches
+    - Named entity recognition
+    - When semantic similarity fails
+
+    Requires: pip install rank-bm25
+    """
+
+    def __init__(
+        self,
+        documents: Optional[list[Document]] = None,
+        k1: float = 1.5,
+        b: float = 0.75,
+        top_k: int = 5,
+    ):
+        """
+        Initialize BM25 Sparse Retriever.
+
+        Args:
+            documents: List of documents to index for BM25
+            k1: BM25 term frequency saturation parameter (typical: 1.2-2.0)
+            b: BM25 document length normalization parameter (typical: 0.5-0.75)
+            top_k: Number of top results to return
+        """
+        self._documents: list[Document] = documents or []
+        self._k1 = k1
+        self._b = b
+        self._top_k = top_k
+        self._bm25 = None
+        self._tokenized_corpus: list[list[str]] = []
+
+        if self._documents:
+            self._initialize_bm25()
+
+    def _initialize_bm25(self) -> None:
+        """Initialize BM25 index from documents."""
+        try:
+            from rank_bm25 import BM25Okapi
+
+            # Tokenize corpus
+            self._tokenized_corpus = [
+                self._tokenize(doc.page_content) for doc in self._documents
+            ]
+
+            # Initialize BM25
+            self._bm25 = BM25Okapi(
+                self._tokenized_corpus,
+                k1=self._k1,
+                b=self._b
+            )
+        except ImportError:
+            logger.warning(
+                "rank-bm25 not installed. Run: pip install rank-bm25"
+            )
+            self._bm25 = None
+
+    @staticmethod
+    def _tokenize(text: str) -> list[str]:
+        """
+        Simple tokenizer for BM25 supporting Unicode (including Chinese).
+
+        Converts text to lowercase and splits on whitespace/punctuation.
+        Preserves Unicode word characters (Chinese, Japanese, etc.).
+
+        Args:
+            text: Input text to tokenize
+
+        Returns:
+            List of tokens
+        """
+        # Lowercase and split on non-word characters (preserves Unicode)
+        tokens = re.sub(r'[^\w\s]', ' ', text.lower())
+        return [t.strip() for t in tokens.split() if t.strip()]
+
+    def add_documents(self, documents: list[Document]) -> None:
+        """
+        Add documents to the BM25 index.
+
+        Args:
+            documents: Documents to add
+        """
+        self._documents.extend(documents)
+        self._initialize_bm25()
+
+    def _get_scores(self, query: str) -> list[float]:
+        """
+        Calculate BM25 scores for all documents.
+
+        Args:
+            query: Query string
+
+        Returns:
+            List of BM25 scores per document
+        """
+        if not self._bm25:
+            return [0.0] * len(self._documents)
+
+        query_tokens = self._tokenize(query)
+        scores = self._bm25.get_scores(query_tokens)
+        return scores.tolist() if hasattr(scores, 'tolist') else list(scores)
+
+    def _get_top_k_with_scores(self, query: str, top_k: int) -> list[tuple[int, float]]:
+        """
+        Get top-k documents with their BM25 scores.
+
+        Args:
+            query: Query string
+            top_k: Number of results
+
+        Returns:
+            List of (document_index, score) tuples
+        """
+        scores = self._get_scores(query)
+        doc_scores = list(enumerate(scores))
+        doc_scores.sort(key=lambda x: x[1], reverse=True)
+        return doc_scores[:top_k]
+
+    async def _aget_relevant_documents(self, query: str) -> list[Document]:
+        """Async wrapper for getting relevant documents."""
+        return self._get_relevant_documents(query)
+
+    def _get_relevant_documents(self, query: str) -> list[Document]:
+        """
+        Get relevant documents for a query using BM25.
+
+        Args:
+            query: Query string
+
+        Returns:
+            List of relevant documents with BM25 scores in metadata
+        """
+        if not query.strip():
+            return []
+
+        if not self._documents or not self._bm25:
+            return []
+
+        top_k_results = self._get_top_k_with_scores(query, self._top_k)
+
+        results = []
+        for doc_idx, score in top_k_results:
+            doc = self._documents[doc_idx]
+            # Create a copy with score in metadata
+            doc_copy = Document(
+                page_content=doc.page_content,
+                metadata={**doc.metadata, "score": score}
+            )
+            results.append(doc_copy)
+
+        return results
 
 
 # =============================================================================
@@ -540,6 +706,96 @@ async def retrieve_with_fusion(
 
 
 # =============================================================================
+# Hybrid Retriever Factory
+# =============================================================================
+
+async def create_hybrid_retriever(
+    sparse_weight: float = 0.3,
+    dense_weight: float = 0.7,
+    top_k: int = 5,
+    filter_metadata: Optional[dict] = None,
+) -> HybridRetriever:
+    """
+    Create a hybrid retriever combining BM25 (sparse) and vector (dense) retrieval.
+
+    This is the recommended way to create a hybrid retriever that combines
+    exact keyword matching with semantic similarity search.
+
+    Args:
+        sparse_weight: Weight for BM25 sparse retrieval (0-1)
+        dense_weight: Weight for vector dense retrieval (0-1)
+        top_k: Number of results per retriever
+        filter_metadata: Optional metadata filter for vector store
+
+    Returns:
+        Configured HybridRetriever instance
+
+    Example:
+        hybrid = await create_hybrid_retriever(
+            sparse_weight=0.3,
+            dense_weight=0.7,
+            top_k=5,
+            filter_metadata={"type": "responsibility"}
+        )
+        results = await hybrid.invoke("微服务架构设计")
+    """
+    # Get dense retriever from vector store
+    vectorstore = get_vectorstore()
+
+    dense_retriever = vectorstore.as_retriever(
+        search_kwargs={
+            "k": top_k,
+            "filter": filter_metadata,
+        }
+    )
+
+    # Build sparse retriever from existing documents in vector store
+    # Note: Chroma doesn't expose all documents for BM25 indexing directly.
+    # For production, maintain a separate document store for BM25.
+    # BM25 retriever will be created with empty corpus - use build_bm25_index()
+    # separately once documents are available.
+    sparse_retriever = BM25SparseRetriever(
+        documents=[],
+        top_k=top_k,
+    )
+    logger.info(
+        "Hybrid retriever created. BM25 corpus is empty - call "
+        "build_bm25_index() or sparse_retriever.add_documents() to enable "
+        "sparse retrieval."
+    )
+
+    return HybridRetriever(
+        sparse_retriever=sparse_retriever,
+        dense_retriever=dense_retriever,
+        sparse_weight=sparse_weight,
+        dense_weight=dense_weight,
+    )
+
+
+async def build_bm25_index(
+    documents: list[Document],
+) -> BM25SparseRetriever:
+    """
+    Build a BM25 sparse retriever from documents.
+
+    Use this to pre-build a BM25 index for keyword-based retrieval.
+
+    Args:
+        documents: List of documents to index
+
+    Returns:
+        BM25SparseRetriever instance ready for querying
+
+    Example:
+        docs = [Document(page_content="...", metadata={"type": "skill"})]
+        bm25 = await build_bm25_index(docs)
+        results = await bm25._get_relevant_documents("Python")
+    """
+    retriever = BM25SparseRetriever(documents=documents)
+    return retriever
+
+
+# =============================================================================
 # Exports
 # =============================================================================
 
@@ -547,8 +803,11 @@ __all__ = [
     "FusionType",
     "MultiVectorRetriever",
     "HybridRetriever",
+    "BM25SparseRetriever",
     "Reranker",
     "RerankerConfig",
     "fusion_results",
     "retrieve_with_fusion",
+    "create_hybrid_retriever",
+    "build_bm25_index",
 ]

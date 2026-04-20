@@ -87,7 +87,7 @@ async def generate_initial(
             series_num=state.current_series,
             question_num=1,
             interview_mode=state.interview_mode.value if hasattr(state.interview_mode, 'value') else str(state.interview_mode),
-            knowledge_context=state.knowledge_context or "",
+            knowledge_context=getattr(state, 'knowledge_context', '') or "",
             responsibility_context=responsibility,
         )
         question_content = result.question.strip() if result.question else ""

@@ -1,9 +1,14 @@
 """Enterprise Knowledge Base retrieval client."""
+from __future__ import annotations
+
 import logging
 import os
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import httpx
+
+if TYPE_CHECKING:
+    from src.agent.state import InterviewState
 
 logger = logging.getLogger(__name__)
 

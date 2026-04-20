@@ -177,10 +177,7 @@ class PromptCache:
                 prompt_tokens_details = getattr(usage, "prompt_tokens_details", None)
                 if prompt_tokens_details:
                     cached_tokens = getattr(prompt_tokens_details, "cached_tokens", 0) or 0
-        else:
-            # TODO: 调用真实的 LLM 验证
-            # 这部分在 Task 5 实现
-            pass
+        # 注意：真实 LLM 验证使用 validate_cache_with_llm 方法
 
         is_valid = cached_tokens > 0
 

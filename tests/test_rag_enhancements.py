@@ -12,6 +12,7 @@ from src.tools.rag_enhancements import (
     FusionType,
     MultiVectorRetriever,
     HybridRetriever,
+    BM25SparseRetriever,
     Reranker,
     fusion_results,
     retrieve_with_fusion,
@@ -35,6 +36,157 @@ class TestFusionType:
         """Test SBERT fusion type"""
         assert FusionType.SBERT.value == "sbert"
         assert FusionType.SBERT.name == "SBERT"
+
+
+class TestBM25SparseRetriever:
+    """Test BM25SparseRetriever class for keyword-based sparse retrieval"""
+
+    def test_bm25_initialization(self):
+        """Test BM25SparseRetriever can be initialized"""
+        retriever = BM25SparseRetriever(top_k=5)
+        assert retriever._top_k == 5
+        assert retriever._k1 == 1.5
+        assert retriever._b == 0.75
+        assert retriever._documents == []
+
+    def test_bm25_initialization_with_documents(self):
+        """Test BM25SparseRetriever with documents"""
+        mock_doc = MagicMock()
+        mock_doc.page_content = "Python programming language"
+
+        retriever = BM25SparseRetriever(
+            documents=[mock_doc],
+            k1=1.8,
+            b=0.8,
+            top_k=3
+        )
+        assert retriever._top_k == 3
+        assert len(retriever._documents) == 1
+
+    def test_bm25_tokenize(self):
+        """Test BM25 tokenization"""
+        retriever = BM25SparseRetriever()
+        tokens = retriever._tokenize("Python Programming Language 123")
+        assert "python" in tokens
+        assert "programming" in tokens
+        assert "language" in tokens
+        assert "123" in tokens
+
+    def test_bm25_tokenize_removes_special_chars(self):
+        """Test BM25 tokenization removes special characters"""
+        retriever = BM25SparseRetriever()
+        tokens = retriever._tokenize("Hello, World! @2024 #test")
+        assert "," not in tokens
+        assert "!" not in tokens
+        assert "@" not in tokens
+        assert "hello" in tokens
+        assert "world" in tokens
+
+    def test_bm25_with_mock_documents(self):
+        """Test BM25 retrieval with mock documents"""
+        mock_doc1 = MagicMock()
+        mock_doc1.page_content = "Python programming language"
+        mock_doc1.metadata = {"type": "skill"}
+
+        mock_doc2 = MagicMock()
+        mock_doc2.page_content = "Java Spring Boot microservices"
+        mock_doc2.metadata = {"type": "skill"}
+
+        mock_doc3 = MagicMock()
+        mock_doc3.page_content = "Distributed system design"
+        mock_doc3.metadata = {"type": "responsibility"}
+
+        retriever = BM25SparseRetriever(
+            documents=[mock_doc1, mock_doc2, mock_doc3],
+            top_k=2
+        )
+
+        # Test exact match
+        results = retriever._get_relevant_documents("Python")
+        assert len(results) <= 2
+        assert results[0].page_content == "Python programming language"
+        assert "score" in results[0].metadata
+
+    def test_bm25_returns_empty_for_empty_query(self):
+        """Test BM25 returns empty for empty query"""
+        retriever = BM25SparseRetriever()
+        results = retriever._get_relevant_documents("")
+        assert results == []
+
+    def test_bm25_returns_empty_when_no_documents(self):
+        """Test BM25 returns empty when no documents indexed"""
+        retriever = BM25SparseRetriever()
+        results = retriever._get_relevant_documents("Python")
+        assert results == []
+
+    def test_bm25_scores_higher_for_exact_match(self):
+        """Test BM25 gives higher score to exact matches"""
+        # Use corpus where search term appears in <50% of docs for positive IDF
+        # python appears in 2/5 = 40% of docs
+        mock_doc1 = MagicMock()
+        mock_doc1.page_content = "Python Django web"
+        mock_doc1.metadata = {}
+
+        mock_doc2 = MagicMock()
+        mock_doc2.page_content = "Java Spring backend"
+        mock_doc2.metadata = {}
+
+        mock_doc3 = MagicMock()
+        mock_doc3.page_content = "Ruby Rails web"
+        mock_doc3.metadata = {}
+
+        mock_doc4 = MagicMock()
+        mock_doc4.page_content = "Python Flask API"
+        mock_doc4.metadata = {}
+
+        mock_doc5 = MagicMock()
+        mock_doc5.page_content = "JavaScript React"
+        mock_doc5.metadata = {}
+
+        retriever = BM25SparseRetriever(
+            documents=[mock_doc1, mock_doc2, mock_doc3, mock_doc4, mock_doc5],
+            top_k=2
+        )
+
+        results = retriever._get_relevant_documents("Python")
+        # Python docs should be returned first
+        assert results[0].page_content == "Python Django web"
+        # Score should be higher than 0 (positive IDF since python appears in <50% docs)
+        assert results[0].metadata["score"] > 0
+
+    @pytest.mark.asyncio
+    async def test_bm25_aget_relevant_documents(self):
+        """Test async version of BM25 retrieval"""
+        mock_doc = MagicMock()
+        mock_doc.page_content = "Test document"
+        mock_doc.metadata = {"type": "test"}
+
+        retriever = BM25SparseRetriever(
+            documents=[mock_doc],
+            top_k=1
+        )
+
+        results = await retriever._aget_relevant_documents("Test")
+        assert len(results) == 1
+        assert results[0].page_content == "Test document"
+
+    def test_bm25_add_documents(self):
+        """Test adding documents to BM25 index"""
+        retriever = BM25SparseRetriever()
+
+        mock_doc1 = MagicMock()
+        mock_doc1.page_content = "Document 1"
+        mock_doc1.metadata = {}
+
+        mock_doc2 = MagicMock()
+        mock_doc2.page_content = "Document 2"
+        mock_doc2.metadata = {}
+
+        retriever.add_documents([mock_doc1])
+        assert len(retriever._documents) == 1
+
+        retriever.add_documents([mock_doc2])
+        assert len(retriever._documents) == 2
 
 
 class TestMultiVectorRetriever:

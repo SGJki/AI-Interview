@@ -86,7 +86,7 @@ class TestMemoryTools:
 
     def test_memory_tools_exist(self):
         """测试 memory tools 模块存在"""
-        from src.tools.memory_tools import (
+        from src.infrastructure.session_store import (
             save_to_session_memory,
             get_session_memory,
             clear_session_memory,

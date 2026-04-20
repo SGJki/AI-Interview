@@ -9,17 +9,22 @@ from src.agent.base import (
     create_review_voters,
 )
 
-from src.agent.state import (
+from src.agent.state import InterviewState
+
+from src.domain.enums import (
     InterviewMode,
     FeedbackMode,
     SessionStatus,
     QuestionType,
+)
+
+from src.domain.models import (
     Question,
     Answer,
     Feedback,
-    InterviewState,
-    InterviewContext,
 )
+
+from src.session.context import InterviewContext
 
 from src.agent.orchestrator import (
     orchestrator_graph,
@@ -38,15 +43,18 @@ __all__ = [
     "AgentResult",
     "ReviewVoter",
     "create_review_voters",
-    # State
+    # State (agent layer only keeps InterviewState)
+    "InterviewState",
+    # Domain enums
     "InterviewMode",
     "FeedbackMode",
     "SessionStatus",
     "QuestionType",
+    # Domain models
     "Question",
     "Answer",
     "Feedback",
-    "InterviewState",
+    # Session
     "InterviewContext",
     # Orchestrator
     "orchestrator_graph",

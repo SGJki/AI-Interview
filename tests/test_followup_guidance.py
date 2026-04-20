@@ -12,18 +12,16 @@ import pytest
 from unittest.mock import MagicMock, AsyncMock, patch
 from dataclasses import replace
 
-from src.agent.state import (
-    Feedback,
+from src.domain.enums import (
     FeedbackType,
     FeedbackMode,
     FollowupStrategy,
     InterviewMode,
-    InterviewState,
-    InterviewContext,
-    Question,
     QuestionType,
-    Answer,
 )
+from src.domain.models import Feedback, Question, Answer
+from src.agent.state import InterviewState
+from src.session.context import InterviewContext
 from src.services.interview_service import InterviewService
 
 
@@ -53,12 +51,12 @@ class TestFollowupStrategy:
 
     def test_followup_strategy_enum_exists(self):
         """测试 FollowupStrategy 枚举存在"""
-        from src.agent.state import FollowupStrategy
+        from src.domain.enums import FollowupStrategy
         assert FollowupStrategy is not None
 
     def test_followup_strategy_values(self):
         """测试 FollowupStrategy 枚举值"""
-        from src.agent.state import FollowupStrategy
+        from src.domain.enums import FollowupStrategy
         assert FollowupStrategy.IMMEDIATE.value == "immediate"
         assert FollowupStrategy.DEFERRED.value == "deferred"
         assert FollowupStrategy.SKIP.value == "skip"
@@ -500,7 +498,7 @@ class TestThresholdReminder:
         self, service, mock_state_at_threshold
     ):
         """测试连续答错达到阈值时触发提醒"""
-        from src.agent.state import FeedbackType
+        from src.domain.enums import FeedbackType
 
         service.state = mock_state_at_threshold
 
@@ -533,7 +531,7 @@ class TestThresholdReminder:
         self, service, mock_state_at_threshold
     ):
         """测试提醒包含知识点提示"""
-        from src.agent.state import FeedbackType
+        from src.domain.enums import FeedbackType
 
         service.state = mock_state_at_threshold
 

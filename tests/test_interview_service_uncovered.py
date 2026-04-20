@@ -21,19 +21,11 @@ import pytest
 from unittest.mock import MagicMock, AsyncMock, patch
 from dataclasses import replace
 
-from src.agent.state import (
-    FeedbackMode,
-    InterviewMode,
-    InterviewState,
-    InterviewContext,
-    Question,
-    QuestionType,
-    Answer,
-    Feedback,
-    FeedbackType,
-    SeriesRecord,
-    FinalFeedback,
-)
+from src.domain.enums import FeedbackMode, InterviewMode, QuestionType, FeedbackType
+from src.domain.models import Question, Answer, Feedback, SeriesRecord
+from src.agent.state import InterviewState
+from src.session.context import InterviewContext
+from src.session.snapshot import FinalFeedback
 from src.services.interview_service import InterviewService
 
 

@@ -1,5 +1,5 @@
 """
-Memory Tools for AI Interview Agent
+Session Store - Redis会话存储
 
 短期记忆：LangGraph State（内存）
 短中期记忆：Redis（会话级）
@@ -10,12 +10,8 @@ import redis.asyncio as redis
 from typing import Optional
 from datetime import timedelta
 
-from src.agent.state import (
-    InterviewState,
-    InterviewContext,
-    InterviewMode,
-    FeedbackMode,
-)
+from src.session.context import InterviewContext
+from src.domain.enums import InterviewMode, FeedbackMode
 
 
 # =============================================================================
@@ -593,4 +589,3 @@ class SessionHealthMonitor:
                     })
 
         return expiring_sessions
-

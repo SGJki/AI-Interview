@@ -4,7 +4,7 @@ Unit tests for Context Catch Snapshot dataclasses
 
 import pytest
 from datetime import datetime
-from src.agent.state import (
+from src.session.snapshot import (
     ProgressSnapshot,
     EvaluationSnapshot,
     InsightSummary,

@@ -7,17 +7,10 @@ Phase 2: Support for multiple series with independent question chains and state 
 import pytest
 from unittest.mock import patch
 from dataclasses import dataclass, field, replace
-from src.agent.state import (
-    InterviewMode,
-    FeedbackMode,
-    QuestionType,
-    Question,
-    Answer,
-    Feedback,
-    SeriesRecord,
-    InterviewState,
-    InterviewContext,
-)
+from src.domain.enums import InterviewMode, FeedbackMode, QuestionType
+from src.domain.models import Question, Answer, Feedback, SeriesRecord
+from src.agent.state import InterviewState
+from src.session.context import InterviewContext
 
 
 class TestSeriesStateTracking:

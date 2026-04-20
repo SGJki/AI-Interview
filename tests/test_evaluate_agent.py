@@ -79,7 +79,8 @@ class TestEvaluateAgentFunctions:
 async def test_evaluate_with_standard_success():
     """测试使用标准答案评估"""
     from dataclasses import replace
-    from src.agent.state import Question, QuestionType, Answer
+    from src.domain.models import Question, Answer
+    from src.domain.enums import QuestionType
 
     state = InterviewState(session_id="test", resume_id="r1")
     state = replace(state,
@@ -109,7 +110,8 @@ async def test_evaluate_with_standard_success():
 async def test_evaluate_without_standard_success():
     """测试无标准答案评估"""
     from dataclasses import replace
-    from src.agent.state import Question, QuestionType, Answer
+    from src.domain.models import Question, Answer
+    from src.domain.enums import QuestionType
 
     state = InterviewState(session_id="test", resume_id="r1")
     state = replace(state,
@@ -138,7 +140,8 @@ async def test_evaluate_without_standard_success():
 async def test_evaluate_with_standard_error_handling():
     """测试评估失败时的错误处理"""
     from dataclasses import replace
-    from src.agent.state import Question, QuestionType, Answer
+    from src.domain.models import Question, Answer
+    from src.domain.enums import QuestionType
 
     state = InterviewState(session_id="test", resume_id="r1")
     state = replace(state,

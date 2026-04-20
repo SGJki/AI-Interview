@@ -10,13 +10,10 @@ Tests for Recorded Feedback Mode - Phase 2
 import pytest
 from unittest.mock import MagicMock, AsyncMock, patch
 from dataclasses import replace
-from src.agent.state import (
-    FeedbackMode,
-    InterviewMode,
-    InterviewState,
-    InterviewContext,
-    FinalFeedback,
-)
+from src.domain.enums import FeedbackMode, InterviewMode
+from src.agent.state import InterviewState
+from src.session.context import InterviewContext
+from src.session.snapshot import FinalFeedback
 from src.services.interview_service import InterviewService
 
 

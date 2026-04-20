@@ -6,10 +6,9 @@ import pytest
 from datetime import datetime
 from unittest.mock import MagicMock, patch, AsyncMock
 from src.core.context_catch import ContextCatchEngine, _snapshot_key, _version_key
-from src.agent.state import (
-    InterviewContext,
-    InterviewMode,
-    FeedbackMode,
+from src.session.context import InterviewContext
+from src.domain.enums import InterviewMode, FeedbackMode
+from src.session.snapshot import (
     ProgressSnapshot,
     EvaluationSnapshot,
     InsightSummary,

@@ -17,7 +17,7 @@ from src.api.models import (
     QAResponse,
     FeedbackData,
 )
-from src.agent.state import InterviewMode, FeedbackMode
+from src.domain.enums import InterviewMode, FeedbackMode
 from src.services.interview_service import InterviewService
 
 
@@ -73,7 +73,7 @@ async def submit_training_answer(request: SubmitAnswerRequest) -> QAResponse:
     """
     try:
         # 获取面试服务
-        from src.tools.memory_tools import SessionStateManager
+        from src.infrastructure.session_store import SessionStateManager
 
         session_manager = SessionStateManager()
         context = await session_manager.load_interview_state(request.session_id)
@@ -94,7 +94,9 @@ async def submit_training_answer(request: SubmitAnswerRequest) -> QAResponse:
 
         # 加载状态（与 interview.py 相同的修复）
         if context.current_question_id:
-            from src.agent.state import InterviewState, Question, Answer, QuestionType
+            from src.agent.state import InterviewState
+            from src.domain.enums import QuestionType
+            from src.domain.models import Question, Answer
             # 从 context.answers 恢复 dict 格式的回答记录
             answers_dict = {}
             for ans in context.answers:
@@ -171,7 +173,7 @@ async def end_training(
         TrainingResult: 训练结果
     """
     try:
-        from src.tools.memory_tools import SessionStateManager
+        from src.infrastructure.session_store import SessionStateManager
 
         session_manager = SessionStateManager()
         context = await session_manager.load_interview_state(session_id)

@@ -21,7 +21,8 @@ from src.api.models import (
     QAResponse,
     FeedbackData,
 )
-from src.agent.state import InterviewMode, FeedbackMode, Question, QuestionType, Answer, FeedbackType
+from src.domain.enums import InterviewMode, FeedbackMode, QuestionType, FeedbackType
+from src.domain.models import Question, Answer
 from src.services.interview_service import InterviewService
 
 
@@ -121,7 +122,7 @@ class TestSubmitTrainingAnswerEndpoint:
     async def test_submit_training_answer_session_not_found(self):
         """Test submit_training_answer when session not found"""
         from src.api.training import submit_training_answer
-        from src.tools.memory_tools import SessionStateManager
+        from src.infrastructure.session_store import SessionStateManager
         from fastapi import HTTPException
 
         request = SubmitAnswerRequest(
@@ -130,7 +131,7 @@ class TestSubmitTrainingAnswerEndpoint:
             user_answer="我的答案",
         )
 
-        with patch('src.tools.memory_tools.SessionStateManager') as MockSM:
+        with patch('src.infrastructure.session_store.SessionStateManager') as MockSM:
             mock_manager = MagicMock()
             mock_manager.load_interview_state = AsyncMock(return_value=None)
             MockSM.return_value = mock_manager
@@ -144,7 +145,7 @@ class TestSubmitTrainingAnswerEndpoint:
     async def test_submit_training_answer_success(self):
         """Test successful training answer submission"""
         from src.api.training import submit_training_answer
-        from src.tools.memory_tools import SessionStateManager
+        from src.infrastructure.session_store import SessionStateManager
 
         mock_context = MagicMock()
         mock_context.resume_id = "resume-123"
@@ -181,7 +182,7 @@ class TestSubmitTrainingAnswerEndpoint:
         mock_response.should_continue = False
         mock_response.interview_status = "completed"
 
-        with patch('src.tools.memory_tools.SessionStateManager') as MockSM:
+        with patch('src.infrastructure.session_store.SessionStateManager') as MockSM:
             mock_manager = MagicMock()
             mock_manager.load_interview_state = AsyncMock(return_value=mock_context)
             mock_manager.save_interview_state = AsyncMock()
@@ -202,7 +203,7 @@ class TestSubmitTrainingAnswerEndpoint:
     async def test_submit_training_answer_with_feedback(self):
         """Test submit_training_answer with feedback data"""
         from src.api.training import submit_training_answer
-        from src.tools.memory_tools import SessionStateManager
+        from src.infrastructure.session_store import SessionStateManager
 
         mock_context = MagicMock()
         mock_context.resume_id = "resume-123"
@@ -234,7 +235,7 @@ class TestSubmitTrainingAnswerEndpoint:
         mock_response.should_continue = True
         mock_response.interview_status = "active"
 
-        with patch('src.tools.memory_tools.SessionStateManager') as MockSM:
+        with patch('src.infrastructure.session_store.SessionStateManager') as MockSM:
             mock_manager = MagicMock()
             mock_manager.load_interview_state = AsyncMock(return_value=mock_context)
             mock_manager.save_interview_state = AsyncMock()
@@ -255,7 +256,7 @@ class TestSubmitTrainingAnswerEndpoint:
     async def test_submit_training_answer_handles_exception(self):
         """Test submit_training_answer handles exceptions"""
         from src.api.training import submit_training_answer
-        from src.tools.memory_tools import SessionStateManager
+        from src.infrastructure.session_store import SessionStateManager
         from fastapi import HTTPException
 
         mock_context = MagicMock()
@@ -277,7 +278,7 @@ class TestSubmitTrainingAnswerEndpoint:
             user_answer="答案",
         )
 
-        with patch('src.tools.memory_tools.SessionStateManager') as MockSM:
+        with patch('src.infrastructure.session_store.SessionStateManager') as MockSM:
             mock_manager = MagicMock()
             mock_manager.load_interview_state = AsyncMock(return_value=mock_context)
             MockSM.return_value = mock_manager
@@ -301,9 +302,9 @@ class TestEndTrainingEndpoint:
     async def test_end_training_no_active_session(self):
         """Test end_training when no active session"""
         from src.api.training import end_training
-        from src.tools.memory_tools import SessionStateManager
+        from src.infrastructure.session_store import SessionStateManager
 
-        with patch('src.tools.memory_tools.SessionStateManager') as MockSM:
+        with patch('src.infrastructure.session_store.SessionStateManager') as MockSM:
             mock_manager = MagicMock()
             mock_manager.load_interview_state = AsyncMock(return_value=None)
             MockSM.return_value = mock_manager
@@ -317,8 +318,8 @@ class TestEndTrainingEndpoint:
     async def test_end_training_success(self):
         """Test successful training end"""
         from src.api.training import end_training
-        from src.tools.memory_tools import SessionStateManager
-        from src.agent.state import FinalFeedback
+        from src.infrastructure.session_store import SessionStateManager
+        from src.session.snapshot import FinalFeedback
 
         mock_context = MagicMock()
         mock_context.resume_id = "resume-123"
@@ -345,7 +346,7 @@ class TestEndTrainingEndpoint:
             ),
         }
 
-        with patch('src.tools.memory_tools.SessionStateManager') as MockSM:
+        with patch('src.infrastructure.session_store.SessionStateManager') as MockSM:
             mock_manager = MagicMock()
             mock_manager.load_interview_state = AsyncMock(return_value=mock_context)
             MockSM.return_value = mock_manager
@@ -365,7 +366,7 @@ class TestEndTrainingEndpoint:
     async def test_end_training_handles_exception(self):
         """Test end_training handles exceptions"""
         from src.api.training import end_training
-        from src.tools.memory_tools import SessionStateManager
+        from src.infrastructure.session_store import SessionStateManager
         from fastapi import HTTPException
 
         mock_context = MagicMock()
@@ -375,7 +376,7 @@ class TestEndTrainingEndpoint:
         mock_context.feedback_mode = FeedbackMode.RECORDED
         mock_context.error_threshold = 2
 
-        with patch('src.tools.memory_tools.SessionStateManager') as MockSM:
+        with patch('src.infrastructure.session_store.SessionStateManager') as MockSM:
             mock_manager = MagicMock()
             mock_manager.load_interview_state = AsyncMock(return_value=mock_context)
             MockSM.return_value = mock_manager

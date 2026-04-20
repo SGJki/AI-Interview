@@ -32,7 +32,8 @@ from src.services.training_selector import (
     TrainingSkillSelector,
 )
 from src.services.resume_parser import ResumeInfo, ProjectInfo
-from src.agent.state import Question, QuestionType
+from src.domain.models import Question
+from src.domain.enums import QuestionType
 
 
 class TestFollowupLevel:

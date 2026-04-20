@@ -30,7 +30,8 @@ from src.api.models import (
     SnapshotRequest,
     SnapshotResponse,
 )
-from src.agent.state import InterviewMode, FeedbackMode, QuestionType, Feedback, FeedbackType, Question, Answer
+from src.domain.enums import InterviewMode, FeedbackMode, QuestionType, FeedbackType
+from src.domain.models import Question, Answer, Feedback
 from src.services.interview_service import InterviewService, create_interview
 
 
@@ -167,7 +168,7 @@ async def get_question(
 
     async def event_generator() -> AsyncGenerator[dict, None]:
         try:
-            from src.tools.memory_tools import SessionStateManager
+            from src.infrastructure.session_store import SessionStateManager
 
             session_manager = SessionStateManager()
             context = await session_manager.load_interview_state(session_id)
@@ -191,11 +192,11 @@ async def get_question(
 
             # 初始化 service.state（如果没有的话）
             if service.state is None:
-                from src.agent.state import InterviewState, Question
+                from src.agent.state import InterviewState
+                from src.domain.models import Question, Answer
                 answers_dict = {}
                 for ans in context.answers:
                     if 'question_id' in ans and 'answer' in ans:
-                        from src.agent.state import Answer
                         answers_dict[ans['question_id']] = Answer(
                             question_id=ans['question_id'],
                             content=ans['answer'],
@@ -302,7 +303,7 @@ async def submit_answer(
     async def event_generator() -> AsyncGenerator[dict, None]:
         try:
             # 获取面试服务
-            from src.tools.memory_tools import SessionStateManager
+            from src.infrastructure.session_store import SessionStateManager
 
             session_manager = SessionStateManager()
             context = await session_manager.load_interview_state(request.session_id)
@@ -329,7 +330,8 @@ async def submit_answer(
 
             # 加载状态
             if context.current_question_id:
-                from src.agent.state import InterviewState, Question, Answer
+                from src.agent.state import InterviewState
+                from src.domain.models import Question, Answer
                 # 从 context.answers 恢复 dict 格式的回答记录
                 answers_dict = {}
                 for ans in context.answers:
@@ -541,7 +543,7 @@ async def end_interview(
     """
     try:
         # 获取面试服务
-        from src.tools.memory_tools import SessionStateManager
+        from src.infrastructure.session_store import SessionStateManager
 
         session_manager = SessionStateManager()
         context = await session_manager.load_interview_state(session_id)
@@ -609,7 +611,7 @@ async def create_snapshot(request: SnapshotRequest) -> SnapshotResponse:
         SnapshotResponse: 包含快照版本和时间戳
     """
     try:
-        from src.tools.memory_tools import SessionStateManager
+        from src.infrastructure.session_store import SessionStateManager
         from src.core.context_catch import ContextCatchEngine
 
         session_manager = SessionStateManager()

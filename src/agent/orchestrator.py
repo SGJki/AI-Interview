@@ -70,7 +70,7 @@ async def review_agent_node(state: InterviewState) -> dict:
 
 async def end_interview_node(state: InterviewState) -> dict:
     """结束面试：写入 PostgreSQL + 清理 Redis"""
-    from src.tools.memory_tools import clear_session_memory
+    from src.infrastructure.session_store import clear_session_memory
     from src.dao.interview_session_dao import InterviewSessionDAO
     from src.db.database import get_db_session
     from uuid import UUID

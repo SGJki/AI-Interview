@@ -108,7 +108,8 @@ async def test_generate_correction_success():
     """测试生成纠正反馈"""
     from unittest.mock import AsyncMock, patch
     from src.agent.feedback_agent import get_llm_service
-    from src.agent.state import Feedback, FeedbackType, Question, QuestionType, Answer
+    from src.domain.models import Feedback, Question, Answer
+    from src.domain.enums import FeedbackType, QuestionType
     from dataclasses import replace
 
     state = InterviewState(session_id="test", resume_id="r1")
@@ -142,7 +143,8 @@ async def test_generate_guidance_success():
     """测试生成引导反馈"""
     from unittest.mock import AsyncMock, patch
     from src.agent.feedback_agent import get_llm_service
-    from src.agent.state import Feedback, FeedbackType, Question, QuestionType, Answer
+    from src.domain.models import Feedback, Question, Answer
+    from src.domain.enums import FeedbackType, QuestionType
     from dataclasses import replace
 
     state = InterviewState(session_id="test", resume_id="r1")
@@ -176,7 +178,8 @@ async def test_generate_comment_success():
     """测试生成评论反馈"""
     from unittest.mock import AsyncMock, patch
     from src.agent.feedback_agent import get_llm_service
-    from src.agent.state import Feedback, FeedbackType, Question, QuestionType, Answer
+    from src.domain.models import Feedback, Question, Answer
+    from src.domain.enums import FeedbackType, QuestionType
     from dataclasses import replace
 
     state = InterviewState(session_id="test", resume_id="r1")
@@ -210,7 +213,8 @@ async def test_generate_correction_updates_feedbacks_dict():
     """测试 generate_correction 更新 feedbacks 字典"""
     from unittest.mock import AsyncMock, patch
     from src.agent.feedback_agent import get_llm_service
-    from src.agent.state import Feedback, FeedbackType, Question, QuestionType, Answer
+    from src.domain.models import Feedback, Question, Answer
+    from src.domain.enums import FeedbackType, QuestionType
     from dataclasses import replace
 
     state = InterviewState(session_id="test", resume_id="r1")

@@ -9,7 +9,8 @@ from src.agent.orchestrator import (
     decide_next_node,
     final_feedback_node,
 )
-from src.agent.state import InterviewState, Answer
+from src.agent.state import InterviewState
+from src.domain.models import Answer
 
 
 class TestOrchestratorIntegration:

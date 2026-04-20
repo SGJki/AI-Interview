@@ -4,17 +4,19 @@ Tests for AI Interview Agent - LangGraph State and Core Architecture
 
 import pytest
 from datetime import datetime
-from src.agent.state import (
+from src.domain.enums import (
     InterviewMode,
     FeedbackMode,
     SessionStatus,
     QuestionType,
+)
+from src.domain.models import (
     Question,
     Answer,
     Feedback,
-    InterviewState,
-    InterviewContext,
 )
+from src.agent.state import InterviewState
+from src.session.context import InterviewContext
 
 
 class TestInterviewState:
