@@ -13,6 +13,7 @@ from src.agent.question_agent import (
     should_continue_followup,
 )
 from src.agent.state import InterviewState
+from src.domain.enums import QuestionType
 
 
 class TestQuestionAgentGraph:
@@ -129,7 +130,8 @@ class TestQuestionAgentLLMIntegration:
         """Test generate_warmup with mocked LLM service"""
         from unittest.mock import AsyncMock, patch
         from src.agent.question_agent import generate_warmup
-        from src.agent.state import Question, QuestionType
+        from src.domain.models import Question
+        from src.domain.enums import QuestionType
 
         state = InterviewState(session_id="test", resume_id="r1")
 
@@ -158,7 +160,8 @@ class TestQuestionAgentLLMIntegration:
         """Test generate_warmup falls back to default on LLM error"""
         from unittest.mock import AsyncMock, patch
         from src.agent.question_agent import generate_warmup
-        from src.agent.state import Question, QuestionType
+        from src.domain.models import Question
+        from src.domain.enums import QuestionType
 
         state = InterviewState(session_id="test", resume_id="r1")
 
@@ -179,7 +182,8 @@ class TestQuestionAgentLLMIntegration:
         """Test generate_initial with mocked LLM service"""
         from unittest.mock import AsyncMock, patch
         from src.agent.question_agent import generate_initial
-        from src.agent.state import Question, QuestionType, InterviewMode
+        from src.domain.models import Question
+        from src.domain.enums import QuestionType, InterviewMode
 
         state = InterviewState(
             session_id="test",
@@ -211,7 +215,8 @@ class TestQuestionAgentLLMIntegration:
         """Test generate_followup with mocked LLM service"""
         from unittest.mock import AsyncMock, patch
         from src.agent.question_agent import generate_followup
-        from src.agent.state import Question, QuestionType
+        from src.domain.models import Question
+        from src.domain.enums import QuestionType
 
         state = InterviewState(
             session_id="test",
@@ -269,6 +274,193 @@ class TestQuestionAgentLLMIntegration:
 
         assert result["current_question"] is None
         assert result["current_question_id"] is None
+
+
+class TestQuestionAgentModuleSkillPoint:
+    """Test QuestionAgent sets current_module and current_skill_point"""
+
+    @pytest.mark.asyncio
+    async def test_generate_initial_sets_module_and_skill_point(self):
+        """Test that generate_initial sets current_module and current_skill_point in result."""
+        from unittest.mock import AsyncMock, patch, MagicMock
+        from src.agent.question_agent import generate_initial
+        from src.domain.models import QuestionResult
+        from src.domain.enums import InterviewMode
+
+        state = InterviewState(
+            session_id="test-session",
+            resume_id="resume-123",
+            current_series=1,
+            interview_mode=InterviewMode.FREE,
+        )
+
+        mock_result = QuestionResult(
+            question="请谈谈Token管理的经验？",
+            module="用户认证",
+            skill_point="Token管理"
+        )
+
+        with patch('src.agent.question_agent.get_llm_service') as mock_get_llm:
+            service = AsyncMock()
+            service.generate_question_structured = AsyncMock(return_value=mock_result)
+            service.resume_info = ""
+            mock_get_llm.return_value = service
+
+            with patch('src.agent.question_agent._ensure_enterprise_docs_bg') as mock_kb:
+                result = await generate_initial(
+                    state,
+                    resume_context="简历内容",
+                    responsibility="后端开发"
+                )
+
+                assert result["current_module"] == "用户认证"
+                assert result["current_skill_point"] == "Token管理"
+                assert result["current_question"] is not None
+                assert result["current_question"].content == "请谈谈Token管理的经验？"
+                # KB query should be triggered
+                mock_kb.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_generate_initial_handles_empty_module(self):
+        """Test that generate_initial handles empty module/skill_point correctly."""
+        from unittest.mock import AsyncMock, patch
+        from src.agent.question_agent import generate_initial
+        from src.domain.models import QuestionResult
+        from src.domain.enums import InterviewMode
+
+        state = InterviewState(
+            session_id="test-session",
+            resume_id="resume-123",
+            current_series=1,
+            interview_mode=InterviewMode.FREE,
+        )
+
+        mock_result = QuestionResult(
+            question="能详细说说吗？",
+            module="",
+            skill_point=""
+        )
+
+        with patch('src.agent.question_agent.get_llm_service') as mock_get_llm:
+            service = AsyncMock()
+            service.generate_question_structured = AsyncMock(return_value=mock_result)
+            service.resume_info = ""
+            mock_get_llm.return_value = service
+
+            with patch('src.agent.question_agent._ensure_enterprise_docs_bg') as mock_kb:
+                result = await generate_initial(
+                    state,
+                    resume_context="简历内容",
+                    responsibility="后端开发"
+                )
+
+                assert result["current_module"] is None
+                assert result["current_skill_point"] is None
+                # KB query should NOT be triggered when module/skill_point are empty
+                mock_kb.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_generate_followup_sets_module_and_skill_point(self):
+        """Test that generate_followup sets current_module and current_skill_point in result."""
+        from unittest.mock import AsyncMock, patch
+        from src.agent.question_agent import generate_followup
+        from src.domain.models import Question, QuestionResult
+        from src.domain.enums import InterviewMode
+
+        state = InterviewState(
+            session_id="test-session",
+            resume_id="resume-123",
+            current_series=1,
+            interview_mode=InterviewMode.FREE,
+            current_question=Question(
+                content="请谈谈Token管理的经验？",
+                question_type=QuestionType.INITIAL,
+                series=1,
+                number=1,
+            ),
+            current_question_id="q_initial",
+            current_module="用户认证",
+            current_skill_point="Token管理",
+            followup_depth=0,
+            followup_chain=["q_initial"],
+            answers={},
+        )
+
+        mock_result = QuestionResult(
+            question="那你说说SSO单点登录的实现原理？",
+            module="用户认证",
+            skill_point="SSO单点登录"
+        )
+
+        qa_history = [
+            {"question": "请谈谈Token管理的经验？", "answer": "我使用JWT进行Token管理"}
+        ]
+        evaluation = {"is_correct": True}
+
+        with patch('src.agent.question_agent.get_llm_service') as mock_get_llm:
+            service = AsyncMock()
+            service.generate_question_structured = AsyncMock(return_value=mock_result)
+            mock_get_llm.return_value = service
+
+            with patch('src.agent.question_agent._ensure_enterprise_docs_bg') as mock_kb:
+                result = await generate_followup(state, qa_history, evaluation)
+
+                assert result["current_module"] == "用户认证"
+                assert result["current_skill_point"] == "SSO单点登录"
+                assert result["current_question"] is not None
+                assert result["current_question"].content == "那你说说SSO单点登录的实现原理？"
+                mock_kb.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_generate_followup_inherits_module_when_not_returned(self):
+        """Test that generate_followup inherits module/skill_point when not returned by LLM."""
+        from unittest.mock import AsyncMock, patch
+        from src.agent.question_agent import generate_followup
+        from src.domain.models import Question, QuestionResult
+        from src.domain.enums import InterviewMode
+
+        state = InterviewState(
+            session_id="test-session",
+            resume_id="resume-123",
+            current_series=1,
+            interview_mode=InterviewMode.FREE,
+            current_question=Question(
+                content="请谈谈Token管理的经验？",
+                question_type=QuestionType.INITIAL,
+                series=1,
+                number=1,
+            ),
+            current_question_id="q_initial",
+            current_module="用户认证",
+            current_skill_point="Token管理",
+            followup_depth=0,
+            followup_chain=["q_initial"],
+            answers={},
+        )
+
+        mock_result = QuestionResult(
+            question="能详细说说吗？",
+            module="",  # Empty module returned
+            skill_point=""  # Empty skill_point returned
+        )
+
+        qa_history = [
+            {"question": "请谈谈Token管理的经验？", "answer": "我使用JWT进行Token管理"}
+        ]
+        evaluation = {"is_correct": True}
+
+        with patch('src.agent.question_agent.get_llm_service') as mock_get_llm:
+            service = AsyncMock()
+            service.generate_question_structured = AsyncMock(return_value=mock_result)
+            mock_get_llm.return_value = service
+
+            with patch('src.agent.question_agent._ensure_enterprise_docs_bg') as mock_kb:
+                result = await generate_followup(state, qa_history, evaluation)
+
+                # Should inherit from state when LLM returns empty
+                assert result["current_module"] == "用户认证"
+                assert result["current_skill_point"] == "Token管理"
+                mock_kb.assert_called_once()
 
 
 if __name__ == "__main__":
