@@ -1,9 +1,12 @@
 """QuestionAgent - Question generation and deduplication."""
+import asyncio
 import logging
 import uuid
 from typing import Literal
 from langgraph.graph import StateGraph, END
-from src.agent.state import InterviewState, Question, QuestionType
+from src.agent.state import InterviewState
+from src.domain.enums import QuestionType
+from src.domain.models import Question
 from src.services.llm_service import InterviewLLMService
 from src.agent.retry import async_retryable
 
@@ -18,6 +21,15 @@ def get_llm_service() -> InterviewLLMService:
     if _llm_service is None:
         _llm_service = InterviewLLMService()
     return _llm_service
+
+
+async def _ensure_enterprise_docs_bg(state: InterviewState):
+    """Background task to query enterprise KB and cache in state."""
+    from src.tools.enterprise_knowledge import ensure_enterprise_docs
+    try:
+        await ensure_enterprise_docs(state)
+    except Exception as e:
+        logger.warning(f"Enterprise KB query failed: {e}")
 
 
 def generate_question_id() -> str:
@@ -68,23 +80,32 @@ async def generate_initial(
 ) -> dict:
     """生成初始问题"""
     llm_service = get_llm_service()
+    llm_service.resume_info = resume_context
 
     try:
-        question = await llm_service.generate_question(
+        result = await llm_service.generate_question_structured(
             series_num=state.current_series,
             question_num=1,
             interview_mode=state.interview_mode.value if hasattr(state.interview_mode, 'value') else str(state.interview_mode),
             knowledge_context=state.knowledge_context or "",
             responsibility_context=responsibility,
         )
-        question_content = question.content.strip() if question and question.content else ""
+        question_content = result.question.strip() if result.question else ""
         if not question_content:
             question_content = f"请谈谈你对{responsibility}的经验"
+        module = result.module if result.module else None
+        skill_point = result.skill_point if result.skill_point else None
     except Exception as e:
         logger.warning(f"generate_initial LLM call failed: {e}, using fallback")
         question_content = f"请谈谈你对{responsibility}的经验"
+        module = None
+        skill_point = None
 
     question_id = generate_question_id()
+
+    # 触发后台 KB 查询（用户思考时可以并行进行）
+    if module or skill_point:
+        asyncio.create_task(_ensure_enterprise_docs_bg(state))
 
     return {
         "current_question": Question(
@@ -95,6 +116,8 @@ async def generate_initial(
             parent_question_id=None,
         ),
         "current_question_id": question_id,
+        "current_module": module,
+        "current_skill_point": skill_point,
         "followup_depth": 0,
         "followup_chain": [question_id],
     }
@@ -122,21 +145,31 @@ async def generate_followup(
         followup_direction = "深入技术细节，说明具体实践"
 
     try:
-        followup_question = await llm_service.generate_followup_question(
-            original_question=state.current_question,
-            user_answer=qa_history[-1].get("answer", "") if qa_history else "",
-            followup_direction=followup_direction,
-            conversation_history=history_str,
+        result = await llm_service.generate_question_structured(
+            series_num=state.current_series,
+            question_num=len(state.answers) + 1,
+            interview_mode=state.interview_mode.value if hasattr(state.interview_mode, 'value') else str(state.interview_mode),
+            knowledge_context=history_str,
+            responsibility_context=followup_direction,
         )
-        followup_content = followup_question.content.strip() if followup_question and followup_question.content else ""
+        followup_content = result.question.strip() if result.question else ""
         if not followup_content:
             followup_content = "能详细说说吗？"
+        # module/skill_point 继承当前值或使用新值
+        module = result.module if result.module else state.current_module
+        skill_point = result.skill_point if result.skill_point else state.current_skill_point
     except Exception as e:
         logger.warning(f"generate_followup LLM call failed: {e}, using fallback")
         followup_content = "能详细说说吗？"
+        module = state.current_module
+        skill_point = state.current_skill_point
 
     new_question_id = generate_question_id()
     new_depth = state.followup_depth + 1
+
+    # 触发后台 KB 查询（用户思考时可以并行进行）
+    if module or skill_point:
+        asyncio.create_task(_ensure_enterprise_docs_bg(state))
 
     return {
         "current_question": Question(
@@ -147,6 +180,8 @@ async def generate_followup(
             parent_question_id=state.current_question_id,
         ),
         "current_question_id": new_question_id,
+        "current_module": module,
+        "current_skill_point": skill_point,
         "followup_depth": new_depth,
         "followup_chain": state.followup_chain + [new_question_id],
     }
