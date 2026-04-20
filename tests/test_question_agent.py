@@ -182,8 +182,8 @@ class TestQuestionAgentLLMIntegration:
         """Test generate_initial with mocked LLM service"""
         from unittest.mock import AsyncMock, patch
         from src.agent.question_agent import generate_initial
-        from src.domain.models import Question
-        from src.domain.enums import QuestionType, InterviewMode
+        from src.domain.models import QuestionResult
+        from src.domain.enums import InterviewMode
 
         state = InterviewState(
             session_id="test",
@@ -194,17 +194,17 @@ class TestQuestionAgentLLMIntegration:
 
         with patch('src.agent.question_agent.get_llm_service') as mock:
             service = AsyncMock()
-            mock_question = Question(
-                content="请谈谈你对后端开发的经验",
-                question_type=QuestionType.INITIAL,
-                series=1,
-                number=1,
-                parent_question_id=None,
+            mock_result = QuestionResult(
+                question="请谈谈你对后端开发的经验",
+                module="",
+                skill_point=""
             )
-            service.generate_question = AsyncMock(return_value=mock_question)
+            service.generate_question_structured = AsyncMock(return_value=mock_result)
+            service.resume_info = ""
             mock.return_value = service
 
-            result = await generate_initial(state, "", "后端开发")
+            with patch('src.agent.question_agent._ensure_enterprise_docs_bg'):
+                result = await generate_initial(state, "", "后端开发")
 
             assert result["current_question"] is not None
             assert result["current_question"].content == "请谈谈你对后端开发的经验"
@@ -215,7 +215,7 @@ class TestQuestionAgentLLMIntegration:
         """Test generate_followup with mocked LLM service"""
         from unittest.mock import AsyncMock, patch
         from src.agent.question_agent import generate_followup
-        from src.domain.models import Question
+        from src.domain.models import Question, QuestionResult
         from src.domain.enums import QuestionType
 
         state = InterviewState(
@@ -230,8 +230,11 @@ class TestQuestionAgentLLMIntegration:
                 parent_question_id=None,
             ),
             current_question_id="q_abc123",
+            current_module="用户认证",
+            current_skill_point="Token管理",
             followup_depth=0,
             followup_chain=["q_abc123"],
+            answers={},
         )
 
         qa_history = [
@@ -241,17 +244,16 @@ class TestQuestionAgentLLMIntegration:
 
         with patch('src.agent.question_agent.get_llm_service') as mock:
             service = AsyncMock()
-            mock_followup = Question(
-                content="能详细说说吗？",
-                question_type=QuestionType.FOLLOWUP,
-                series=1,
-                number=2,
-                parent_question_id="q_abc123",
+            mock_result = QuestionResult(
+                question="能详细说说吗？",
+                module="",
+                skill_point=""
             )
-            service.generate_followup_question = AsyncMock(return_value=mock_followup)
+            service.generate_question_structured = AsyncMock(return_value=mock_result)
             mock.return_value = service
 
-            result = await generate_followup(state, qa_history, evaluation)
+            with patch('src.agent.question_agent._ensure_enterprise_docs_bg'):
+                result = await generate_followup(state, qa_history, evaluation)
 
             assert result["current_question"] is not None
             assert result["current_question"].content == "能详细说说吗？"
