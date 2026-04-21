@@ -85,11 +85,10 @@ class TestEnterpriseKBIntegration:
 
     @pytest.mark.asyncio
     async def test_evaluate_with_standard_integration(self, mock_state):
-        """Test that evaluate_with_standard integrates with ensure_enterprise_docs.
+        """Test that evaluate_with_standard reads from cached enterprise_docs.
 
-        This tests that when evaluate_with_standard is called:
-        1. ensure_enterprise_docs is called to get/query KB
-        2. The returned state_updates include enterprise_docs and enterprise_docs_retrieved
+        Architecture: question_agent calls ensure_enterprise_docs first (eager query),
+        then evaluate_agent reads from state.enterprise_docs (no extra KB call).
         """
         mock_docs = [
             {"content": "Token best practice for authentication...",
@@ -97,11 +96,14 @@ class TestEnterpriseKBIntegration:
              "score": 0.95}
         ]
 
-        with patch('src.agent.evaluate_agent.ensure_enterprise_docs') as mock_ensure, \
-             patch('src.agent.evaluate_agent.get_llm_service') as mock_llm_getter:
+        # Simulate state after question_agent has cached KB docs
+        state_with_docs = replace(
+            mock_state,
+            enterprise_docs=mock_docs,
+            enterprise_docs_retrieved=True,
+        )
 
-            mock_ensure.return_value = (mock_docs, {"enterprise_docs_retrieved": True})
-
+        with patch('src.agent.evaluate_agent.get_llm_service') as mock_llm_getter:
             mock_llm = AsyncMock()
             mock_llm.evaluate_answer.return_value = {
                 "deviation_score": 0.8,
@@ -111,14 +113,16 @@ class TestEnterpriseKBIntegration:
             }
             mock_llm_getter.return_value = mock_llm
 
-            # Call evaluate_with_standard
-            result = await evaluate_with_standard(mock_state)
+            # Call evaluate_with_standard - should read from cached state.enterprise_docs
+            result = await evaluate_with_standard(state_with_docs)
 
-            # Verify ensure_enterprise_docs was called
-            mock_ensure.assert_called_once()
+            # Verify evaluate_answer was called with enterprise_docs from state
+            mock_llm.evaluate_answer.assert_called_once()
+            call_kwargs = mock_llm.evaluate_answer.call_args.kwargs
+            assert call_kwargs["enterprise_docs"] == mock_docs
 
-            # Verify state_updates from KB are included in result
-            assert "enterprise_docs" in result or result.get("enterprise_docs_retrieved") is True
+            # Note: enterprise_docs is in state, not in result updates dict
+            assert "answers" in result  # Basic sanity check
 
     @pytest.mark.asyncio
     async def test_feedback_agents_read_from_state_enterprise_docs(self, mock_state):

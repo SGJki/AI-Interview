@@ -179,7 +179,7 @@ async def sse_connection(request: Request) -> AsyncGenerator[str, None]:
 
 
 @asynccontextmanager
-async def server_lifespan() -> AsyncGenerator[None, None]:
+async def server_lifespan(app) -> AsyncGenerator[None, None]:
     """
     服务器生命周期管理器
 

@@ -15,6 +15,7 @@ from typing import AsyncGenerator
 from dataclasses import replace
 
 from fastapi import APIRouter, HTTPException, Query
+from starlette.requests import Request
 from starlette.responses import JSONResponse
 from sse_starlette.sse import EventSourceResponse
 

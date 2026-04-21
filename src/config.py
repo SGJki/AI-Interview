@@ -29,11 +29,6 @@ class _SimpleConfig:
     def get(self, key: str, default=None):
         return self._config.get(key, default)
 
-# Global config instance
-_config_instance = _load_config()
-config = _SimpleConfig(_config_instance) if _config_instance else None
-
-
 def _expand_env_vars(value: str) -> str:
     """Expand environment variables in ${VAR_NAME} format"""
     if not isinstance(value, str):
@@ -84,6 +79,11 @@ def get_config() -> dict:
     return _load_config()
 
 
+# Global config instance (defined after _load_config)
+_config_instance = _load_config()
+config = _SimpleConfig(_config_instance) if _config_instance else None
+
+
 # =============================================================================
 # Redis Configuration
 # =============================================================================
@@ -98,6 +98,12 @@ class RedisConfig:
         self.port: int = config.get("port", 6379)
         self.db: int = config.get("db", 0)
         self.password: Optional[str] = config.get("password") or None
+
+        # Build url from components (used by session_store, context_catch)
+        if self.password:
+            self.url: str = f"redis://:{self.password}@{self.host}:{self.port}/{self.db}"
+        else:
+            self.url: str = f"redis://{self.host}:{self.port}/{self.db}"
 
         # Validate configuration
         self._validate()
